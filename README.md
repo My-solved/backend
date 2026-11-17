@@ -13,20 +13,14 @@ mounted secret files.
 ## Supported routes
 
 - `/solved/user/show`
-- `/solved/user/organizations`
-- `/solved/user/available_badges`
 - `/solved/user/grass`
-- `/solved/user/top_100`
 - `/solved/user/problem_stats`
 - `/solved/user/tag_ratings`
 - `/solved/background/show`
 - `/solved/badge/show`
-- `/solved/search/suggestion`
 - `/solved/search/problem`
 - `/solved/search/user`
 - `/solved/search/tag`
-- `/solved/arena/contests`
-- `/solved/site/stats`
 
 Official v4 routes:
 
