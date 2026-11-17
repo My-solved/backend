@@ -1,3 +1,5 @@
+import type { SolvedClientCredentials } from './config.js';
+
 export const DEFAULT_UPSTREAM_TIMEOUT_MS = 8_000;
 export const DEFAULT_MAX_RESPONSE_BYTES = 5 * 1_024 * 1_024;
 
@@ -6,6 +8,8 @@ const SAFE_RESPONSE_HEADERS = Object.freeze([
   'retry-after',
   'cache-control',
   'etag',
+  'x-ratelimit-limit',
+  'x-ratelimit-remaining',
 ] as const);
 
 export interface ProxyDependencies {
@@ -13,6 +17,7 @@ export interface ProxyDependencies {
   readonly timeoutMs?: number;
   readonly maxResponseBytes?: number;
   readonly signal?: AbortSignal;
+  readonly credentials?: SolvedClientCredentials;
 }
 
 export interface ProxyResponse {
@@ -114,9 +119,16 @@ export async function proxyRequest(
   }
 
   try {
+    const requestHeaders: Record<string, string> = {
+      accept: 'application/json',
+    };
+    if (dependencies.credentials !== undefined) {
+      requestHeaders['x-client-id'] = dependencies.credentials.clientId;
+      requestHeaders['x-client-secret'] = dependencies.credentials.clientSecret;
+    }
     const response = await fetchImplementation(upstreamUrl, {
       method: 'GET',
-      headers: { accept: 'application/json' },
+      headers: requestHeaders,
       redirect: 'manual',
       signal: controller.signal,
     });
@@ -130,17 +142,17 @@ export async function proxyRequest(
       );
     }
 
-    const headers: Record<string, string> = {};
+    const responseHeaders: Record<string, string> = {};
     for (const name of SAFE_RESPONSE_HEADERS) {
       const value = response.headers.get(name);
       if (value !== null) {
-        headers[name] = value;
+        responseHeaders[name] = value;
       }
     }
 
     return Object.freeze({
       status: response.status,
-      headers: Object.freeze(headers),
+      headers: Object.freeze(responseHeaders),
       body: await readLimitedBody(response, maxResponseBytes),
     });
   } catch (error) {
