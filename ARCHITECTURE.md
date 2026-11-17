@@ -41,5 +41,7 @@ their filenames mirror the production module roles.
 
 Files under `src/generated/` are never edited directly. The OpenAPI snapshot,
 wire declarations, and operation manifest remain deterministic inputs to the
-application layer. See the update and verification commands in
+application router and pure domain request-schema validator. Cataloging a
+method is distinct from exposing it through the inbound HTTP adapter. See the
+update and verification commands in
 [`README.md`](README.md).
