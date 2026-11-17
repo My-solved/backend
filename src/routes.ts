@@ -9,14 +9,14 @@ import {
 } from './uri-schema.js';
 
 const PATH_PARAMETER = /^\{([A-Za-z][A-Za-z0-9]*)\}$/u;
-const EXPECTED_PUBLIC_GET_OPERATIONS = 53;
+const EXPECTED_GET_OPERATIONS = 71;
 
-export interface PublicGetRoute {
+export interface V4GetRoute {
   readonly key: string;
   readonly operation: V4OperationContract;
 }
 
-export interface MatchedPublicGetRoute extends PublicGetRoute {
+export interface MatchedV4GetRoute extends V4GetRoute {
   readonly pathValues: Readonly<Record<string, string>>;
 }
 
@@ -29,14 +29,14 @@ interface ParameterEdge {
 interface RouteNode {
   readonly literals: Map<string, RouteNode>;
   parameter?: ParameterEdge;
-  route?: PublicGetRoute;
+  route?: V4GetRoute;
 }
 
-export interface PublicGetRouter {
+export interface V4GetRouter {
   readonly operationKeys: readonly string[];
   readonly match: (
     decodedPathSegments: readonly string[],
-  ) => MatchedPublicGetRoute | undefined;
+  ) => MatchedV4GetRoute | undefined;
 }
 
 function createNode(): RouteNode {
@@ -47,21 +47,23 @@ function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-function publicGetEntries(): PublicGetRoute[] {
-  const entries: PublicGetRoute[] = [];
+function getEntries(): V4GetRoute[] {
+  const entries: V4GetRoute[] = [];
   for (const [key, narrowOperation] of Object.entries(V4_OPERATION_MANIFEST)) {
     const operation: V4OperationContract = narrowOperation;
     if (
       operation.method === 'GET' &&
       operation.runtime.enabled &&
-      (operation.access.class === 'open' || operation.access.class === 'public')
+      (operation.access.class === 'open' ||
+        operation.access.class === 'public' ||
+        operation.access.class === 'user')
     ) {
       entries.push({ key, operation });
     }
   }
   entries.sort((left, right) => compareText(left.key, right.key));
-  if (entries.length !== EXPECTED_PUBLIC_GET_OPERATIONS) {
-    throw new Error('public/open GET operation count changed');
+  if (entries.length !== EXPECTED_GET_OPERATIONS) {
+    throw new Error('v4 GET operation count changed');
   }
   return entries;
 }
@@ -87,7 +89,7 @@ function sameParameter(
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function insertRoute(root: RouteNode, route: PublicGetRoute): void {
+function insertRoute(root: RouteNode, route: V4GetRoute): void {
   if (!route.operation.gatewayPath.startsWith('/solved/v4/')) {
     throw new Error('gateway route escaped the solved v4 namespace');
   }
@@ -141,7 +143,7 @@ function matchNode(
   segments: readonly string[],
   index: number,
   values: Record<string, string>,
-): MatchedPublicGetRoute | undefined {
+): MatchedV4GetRoute | undefined {
   if (index === segments.length) {
     return node.route === undefined
       ? undefined
@@ -176,9 +178,9 @@ function matchNode(
   return undefined;
 }
 
-export function compilePublicGetRouter(
-  routes: readonly PublicGetRoute[],
-): PublicGetRouter {
+export function compileGetRouter(
+  routes: readonly V4GetRoute[],
+): V4GetRouter {
   const root = createNode();
   const operationKeys: string[] = [];
   for (const route of routes) {
@@ -195,13 +197,13 @@ export function compilePublicGetRouter(
   });
 }
 
-export const PUBLIC_GET_ROUTES = Object.freeze(publicGetEntries());
-const publicGetRouter = compilePublicGetRouter(PUBLIC_GET_ROUTES);
+export const GET_ROUTES = Object.freeze(getEntries());
+const getRouter = compileGetRouter(GET_ROUTES);
 
-export const PUBLIC_GET_OPERATION_KEYS = publicGetRouter.operationKeys;
+export const GET_OPERATION_KEYS = getRouter.operationKeys;
 
 export function findRoute(
   decodedPathSegments: readonly string[],
-): MatchedPublicGetRoute | undefined {
-  return publicGetRouter.match(decodedPathSegments);
+): MatchedV4GetRoute | undefined {
+  return getRouter.match(decodedPathSegments);
 }

@@ -10,8 +10,16 @@ const credentials = Object.freeze({
   clientId: 'trusted-client-id',
   clientSecret: 'trusted-client-secret',
 });
-const jsonUpstreamResponse = (body = '{}'): Response =>
-  new Response(body, { headers: { 'content-type': 'application/json' } });
+const jsonUpstreamResponse = (
+  body = '{}',
+  init: Omit<ResponseInit, 'headers'> & {
+    readonly headers?: Readonly<Record<string, string>>;
+  } = {},
+): Response =>
+  new Response(body, {
+    ...init,
+    headers: { 'content-type': 'application/json', ...init.headers },
+  });
 
 class FakeServerResponse extends EventEmitter {
   status: number | undefined;
@@ -54,10 +62,15 @@ function incomingRequest(
   url: string,
   headers: Readonly<Record<string, string>> = {},
 ): IncomingMessage {
+  const rawHeaders = Object.entries(headers).flatMap(([name, value]) => [
+    name,
+    value,
+  ]);
   return Object.assign(new EventEmitter(), {
     method: 'GET',
     url,
     headers,
+    rawHeaders,
     resume() {},
   }) as unknown as IncomingMessage;
 }
@@ -326,7 +339,7 @@ test('uses only server credentials for v4 even when the caller sends headers', a
   const response = new FakeServerResponse();
   const finished = once(response, 'finish');
   handler(
-    incomingRequest('/solved/v4/users/tourist/contributions', {
+    incomingRequest('/solved/v4/users/tourist', {
       authorization: 'Bearer caller-token',
       cookie: 'session=caller-cookie',
       'x-client-id': 'caller-client-id',
@@ -342,6 +355,331 @@ test('uses only server credentials for v4 even when the caller sends headers', a
     'x-client-id': 'trusted-client-id',
     'x-client-secret': 'trusted-client-secret',
   });
+});
+
+const userGetTargets = [
+  '/solved/v4/account/backgrounds',
+  '/solved/v4/account/bans',
+  '/solved/v4/account/bookmark-favorites',
+  '/solved/v4/account/bookmarks',
+  '/solved/v4/account/collection',
+  '/solved/v4/account/consents',
+  '/solved/v4/account/items',
+  '/solved/v4/account/profile',
+  '/solved/v4/account/settings',
+  '/solved/v4/account/standing',
+  '/solved/v4/account/wallet',
+  '/solved/v4/account/wallet/history',
+  '/solved/v4/me',
+  '/solved/v4/me/emoticons',
+  '/solved/v4/me/tag-progress',
+  '/solved/v4/problems/1000/votes/me',
+  '/solved/v4/rankings/reverse-rivals',
+  '/solved/v4/rankings/rivals',
+] as const;
+
+for (const url of userGetTargets) {
+  test(`requires a Bearer value before every user GET: ${url}`, async () => {
+    let calls = 0;
+    const result = await handleGatewayRequest(
+      { method: 'GET', url },
+      {
+        credentials,
+        fetch: async () => {
+          calls += 1;
+          return jsonUpstreamResponse();
+        },
+      },
+    );
+    assert.equal(result.status, 401);
+    assert.deepEqual(JSON.parse(text(result.body)), { error: 'unauthorized' });
+    assert.equal(result.headers['www-authenticate'], 'Bearer');
+    assert.equal(result.headers['cache-control'], 'no-store');
+    assert.equal(result.headers['access-control-allow-origin'], undefined);
+    assert.equal(result.headers.vary, 'Origin');
+    assert.equal(calls, 0);
+  });
+}
+
+test('forwards one validated user Bearer value and keeps the response private', async () => {
+  let observedHeaders: RequestInit['headers'] | undefined;
+  const result = await handleGatewayRequest(
+    {
+      method: 'GET',
+      url: '/solved/v4/account/settings',
+      rawHeaders: ['Authorization', 'bearer opaque.token-_~+/='],
+    },
+    {
+      credentials,
+      fetch: async (_input, init) => {
+        observedHeaders = init?.headers;
+        return jsonUpstreamResponse('{}', {
+          headers: {
+            'cache-control': 'public, max-age=3600',
+            etag: '"private"',
+          },
+        });
+      },
+    },
+  );
+  assert.equal(result.status, 200);
+  assert.deepEqual(observedHeaders, {
+    accept: 'application/json',
+    'x-client-id': 'trusted-client-id',
+    'x-client-secret': 'trusted-client-secret',
+    authorization: 'Bearer opaque.token-_~+/=',
+  });
+  assert.equal(result.headers['cache-control'], 'no-store');
+  assert.equal(result.headers.etag, undefined);
+});
+
+for (const rawHeaders of [
+  ['Authorization', 'Basic caller'],
+  ['Authorization', 'Bearer first', 'authorization', 'Bearer second'],
+] as const) {
+  test('rejects malformed or duplicate authorization without upstream fallback', async () => {
+    let calls = 0;
+    const result = await handleGatewayRequest(
+      {
+        method: 'GET',
+        url: '/solved/v4/account/settings',
+        rawHeaders,
+      },
+      {
+        credentials,
+        fetch: async () => {
+          calls += 1;
+          return jsonUpstreamResponse();
+        },
+      },
+    );
+    assert.equal(result.status, 400);
+    assert.deepEqual(JSON.parse(text(result.body)), {
+      error: 'invalid_authorization',
+    });
+    assert.equal(result.headers['cache-control'], 'no-store');
+    assert.equal(calls, 0);
+  });
+}
+
+test('never downgrades malformed scoped-public authorization to anonymous', async () => {
+  let calls = 0;
+  const result = await handleGatewayRequest(
+    {
+      method: 'GET',
+      url: '/solved/v4/users/tourist/bookmarks',
+      rawHeaders: ['Authorization', 'Basic caller'],
+    },
+    {
+      credentials,
+      fetch: async () => {
+        calls += 1;
+        return jsonUpstreamResponse();
+      },
+    },
+  );
+  assert.equal(result.status, 400);
+  assert.deepEqual(JSON.parse(text(result.body)), {
+    error: 'invalid_authorization',
+  });
+  assert.equal(calls, 0);
+});
+
+const scopedPublicTargets = [
+  '/solved/v4/problems/1000',
+  '/solved/v4/users/tourist/bookmarks',
+  '/solved/v4/users/tourist/bookmarks/example',
+  '/solved/v4/users/tourist/contributions',
+] as const;
+
+for (const url of scopedPublicTargets) {
+  test(`keeps scoped-public GET anonymous but never cacheable: ${url}`, async () => {
+    let observedHeaders: RequestInit['headers'] | undefined;
+    const result = await handleGatewayRequest(
+      { method: 'GET', url },
+      {
+        credentials,
+        fetch: async (_input, init) => {
+          observedHeaders = init?.headers;
+          return jsonUpstreamResponse('{}', {
+            headers: {
+              'cache-control': 'public, max-age=3600',
+              etag: '"anonymous-private-surface"',
+            },
+          });
+        },
+      },
+    );
+    assert.equal(result.status, 200);
+    assert.equal(new Headers(observedHeaders).has('authorization'), false);
+    assert.equal(result.headers['cache-control'], 'no-store');
+    assert.equal(result.headers.etag, undefined);
+    assert.equal(result.headers['access-control-allow-origin'], undefined);
+    assert.equal(result.headers.vary, 'Origin');
+  });
+}
+
+test('forwards an optional scoped-public Bearer without introspecting scopes', async () => {
+  let observedHeaders: RequestInit['headers'] | undefined;
+  const result = await handleGatewayRequest(
+    {
+      method: 'GET',
+      url: '/solved/v4/users/tourist/bookmarks',
+      rawHeaders: ['Authorization', 'Bearer opaque-with-unknown-scope'],
+    },
+    {
+      credentials,
+      fetch: async (_input, init) => {
+        observedHeaders = init?.headers;
+        return jsonUpstreamResponse();
+      },
+    },
+  );
+  assert.equal(result.status, 200);
+  assert.equal(
+    new Headers(observedHeaders).get('authorization'),
+    'Bearer opaque-with-unknown-scope',
+  );
+});
+
+for (const url of scopedPublicTargets) {
+  for (const status of [401, 403]) {
+    test(`rejects undeclared scoped-public upstream ${status}: ${url}`, async () => {
+      const result = await handleGatewayRequest(
+        {
+          method: 'GET',
+          url,
+          rawHeaders: ['Authorization', 'Bearer opaque-token'],
+        },
+        {
+          credentials,
+          fetch: async () => jsonUpstreamResponse('{}', { status }),
+        },
+      );
+      assert.equal(result.status, 502);
+      assert.deepEqual(JSON.parse(text(result.body)), {
+        error: 'upstream_contract',
+      });
+      assert.equal(result.headers['cache-control'], 'no-store');
+    });
+  }
+}
+
+for (const status of [401, 403]) {
+  test(`preserves declared user upstream ${status} without cache validators`, async () => {
+    const result = await handleGatewayRequest(
+      {
+        method: 'GET',
+        url: '/solved/v4/account/settings',
+        rawHeaders: ['Authorization', 'Bearer opaque-token'],
+      },
+      {
+        credentials,
+        fetch: async () =>
+          jsonUpstreamResponse('{}', {
+            status,
+            headers: {
+              'cache-control': 'private, max-age=60',
+              etag: '"user-error"',
+            },
+          }),
+      },
+    );
+    assert.equal(result.status, status);
+    assert.equal(result.headers['cache-control'], 'no-store');
+    assert.equal(result.headers.etag, undefined);
+  });
+}
+
+test('resolves the operation and query before parsing authorization', async () => {
+  const result = await handleGatewayRequest({
+    method: 'GET',
+    url: '/solved/v4/account/settings?unknown=value',
+    rawHeaders: ['Authorization', 'Basic malformed'],
+  });
+  assert.equal(result.status, 400);
+  assert.deepEqual(JSON.parse(text(result.body)), { error: 'invalid_query' });
+});
+
+test('applies exact protected CORS and authorizes only its GET preflight', async () => {
+  let calls = 0;
+  const protectedCorsOrigins = ['https://app.example'];
+  const disallowed = await handleGatewayRequest(
+    {
+      method: 'GET',
+      url: '/solved/v4/account/settings',
+      rawHeaders: [
+        'Origin',
+        'https://evil.example',
+        'Authorization',
+        'Bearer token',
+      ],
+    },
+    {
+      credentials,
+      protectedCorsOrigins,
+      fetch: async () => {
+        calls += 1;
+        return jsonUpstreamResponse();
+      },
+    },
+  );
+  assert.equal(disallowed.status, 403);
+  assert.equal(disallowed.headers['access-control-allow-origin'], undefined);
+
+  const preflight = await handleGatewayRequest(
+    {
+      method: 'OPTIONS',
+      url: '/solved/v4/account/settings',
+      rawHeaders: [
+        'Origin',
+        'https://app.example',
+        'Access-Control-Request-Method',
+        'GET',
+        'Access-Control-Request-Headers',
+        'Authorization',
+      ],
+    },
+    { protectedCorsOrigins },
+  );
+  assert.equal(preflight.status, 204);
+  assert.equal(
+    preflight.headers['access-control-allow-origin'],
+    'https://app.example',
+  );
+  assert.equal(
+    preflight.headers['access-control-allow-headers'],
+    'Authorization',
+  );
+  assert.equal(preflight.headers['access-control-allow-credentials'], undefined);
+  assert.equal(calls, 0);
+});
+
+test('closes a denied protected CORS request that carries a body', () => {
+  let calls = 0;
+  const handler = createRequestHandler({
+    credentials,
+    protectedCorsOrigins: ['https://app.example'],
+    fetch: async () => {
+      calls += 1;
+      return jsonUpstreamResponse();
+    },
+  });
+  const response = new FakeServerResponse();
+  handler(
+    incomingRequest('/solved/v4/account/settings', {
+      origin: 'https://evil.example',
+      authorization: 'Bearer opaque-token',
+      'transfer-encoding': 'chunked',
+    }),
+    asServerResponse(response),
+  );
+
+  assert.equal(response.status, 403);
+  assert.equal(response.headers?.connection, 'close');
+  assert.equal(response.headers?.vary, 'Origin');
+  assert.equal(response.headers?.['access-control-allow-origin'], undefined);
+  assert.equal(calls, 0);
 });
 
 test('maps undeclared upstream status to a generic contract error', async () => {

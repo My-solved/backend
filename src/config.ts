@@ -1,6 +1,8 @@
 import { readFileSync, statSync } from 'node:fs';
 
 const MAX_CREDENTIAL_BYTES = 4_096;
+const MAX_CORS_ORIGINS_BYTES = 8_192;
+const MAX_CORS_ORIGINS = 32;
 
 export interface SolvedClientCredentials {
   readonly clientId: string;
@@ -12,6 +14,59 @@ export class ConfigurationError extends Error {
     super(message);
     this.name = 'ConfigurationError';
   }
+}
+
+export function loadProtectedCorsOrigins(
+  environment: NodeJS.ProcessEnv = process.env,
+): readonly string[] {
+  const raw = environment.SOLVED_PROTECTED_CORS_ORIGINS;
+  if (raw === undefined || raw.length === 0) {
+    return Object.freeze([]);
+  }
+  if (Buffer.byteLength(raw, 'utf8') > MAX_CORS_ORIGINS_BYTES) {
+    throw new ConfigurationError(
+      'SOLVED_PROTECTED_CORS_ORIGINS contains an invalid value',
+    );
+  }
+
+  const candidates = raw.split(',').map((candidate) => candidate.trim());
+  if (
+    candidates.length > MAX_CORS_ORIGINS ||
+    candidates.some((candidate) => candidate.length === 0)
+  ) {
+    throw new ConfigurationError(
+      'SOLVED_PROTECTED_CORS_ORIGINS contains an invalid value',
+    );
+  }
+
+  const origins: string[] = [];
+  for (const candidate of candidates) {
+    let url: URL;
+    try {
+      url = new URL(candidate);
+    } catch {
+      throw new ConfigurationError(
+        'SOLVED_PROTECTED_CORS_ORIGINS contains an invalid value',
+      );
+    }
+    if (
+      (url.protocol !== 'https:' && url.protocol !== 'http:') ||
+      url.origin === 'null' ||
+      url.username.length !== 0 ||
+      url.password.length !== 0 ||
+      url.pathname !== '/' ||
+      url.search.length !== 0 ||
+      url.hash.length !== 0 ||
+      candidate !== url.origin ||
+      origins.includes(url.origin)
+    ) {
+      throw new ConfigurationError(
+        'SOLVED_PROTECTED_CORS_ORIGINS contains an invalid value',
+      );
+    }
+    origins.push(url.origin);
+  }
+  return Object.freeze(origins);
 }
 
 function readCredential(
