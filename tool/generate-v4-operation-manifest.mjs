@@ -30,6 +30,16 @@ const expectedSnapshotSha256 =
   '312abfb4677fc67d914f6a357ff5b89d170eb65791ecb5d3ab30ab873352125d';
 const expectedOperationCount = 83;
 const expectedPublicOpenGetCount = 53;
+const expectedBearerPolicyCounts = Object.freeze({
+  none: 51,
+  optional: 4,
+  required: 28,
+});
+const expectedGetBearerPolicyCounts = Object.freeze({
+  none: 49,
+  optional: 4,
+  required: 18,
+});
 
 const allowedPatterns = new Set([
   '^[0-9a-z_]{1,32}$',
@@ -906,6 +916,19 @@ function runtimePolicy(operationOverride) {
   return { enabled: true, policy: 'generated' };
 }
 
+function bearerPolicy(access) {
+  if (access.class === 'user') {
+    return 'required';
+  }
+  if (access.class === 'public') {
+    return access.scope === undefined ? 'none' : 'optional';
+  }
+  if (access.scope !== undefined) {
+    throw new Error('open and app access cannot declare a bearer scope');
+  }
+  return 'none';
+}
+
 export function generateOperationManifest(document, overrides, snapshotSha256) {
   const contractMetrics = validateOpenApiDocument(document);
   if (contractMetrics.operationCount !== expectedOperationCount) {
@@ -920,6 +943,8 @@ export function generateOperationManifest(document, overrides, snapshotSha256) {
   const requestMetrics = emptyMetrics();
   const manifest = {};
   let publicOpenGetCount = 0;
+  const bearerPolicyCounts = { none: 0, optional: 0, required: 0 };
+  const getBearerPolicyCounts = { none: 0, optional: 0, required: 0 };
 
   for (const key of [...operations.keys()].sort(compareText)) {
     const { method, path, pathItem, operation } = operations.get(key);
@@ -951,6 +976,11 @@ export function generateOperationManifest(document, overrides, snapshotSha256) {
     const access = { class: operation['x-access'].class };
     if (operation['x-access'].scope !== undefined) {
       access.scope = operation['x-access'].scope;
+    }
+    access.bearer = bearerPolicy(access);
+    bearerPolicyCounts[access.bearer] += 1;
+    if (method === 'get') {
+      getBearerPolicyCounts[access.bearer] += 1;
     }
     if (
       method === 'get' &&
@@ -986,6 +1016,16 @@ export function generateOperationManifest(document, overrides, snapshotSha256) {
     throw new Error('public/open GET operation count changed');
   }
   assertExactRecord(
+    bearerPolicyCounts,
+    expectedBearerPolicyCounts,
+    'bearer policy distribution',
+  );
+  assertExactRecord(
+    getBearerPolicyCounts,
+    expectedGetBearerPolicyCounts,
+    'GET bearer policy distribution',
+  );
+  assertExactRecord(
     requestMetrics,
     EXPECTED_REQUEST_SCHEMA_METRICS,
     'request schema grammar',
@@ -995,6 +1035,8 @@ export function generateOperationManifest(document, overrides, snapshotSha256) {
     manifest,
     requestMetrics,
     publicOpenGetCount,
+    bearerPolicyCounts,
+    getBearerPolicyCounts,
   };
 }
 

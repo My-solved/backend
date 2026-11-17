@@ -143,9 +143,10 @@ without editing or disguising the official generated contract.
 
 `src/generated/v4-operations.ts` is the pure-data runtime intake contract for
 all 83 official operations. It is keyed by `METHOD /api/v4/path` and records
-only fixed upstream/gateway templates, access class and scope, reviewed request
-schemas, request-body policy, and allowed response status/media metadata. It
-does not contain response DTOs and does not make any route reachable by itself.
+only fixed upstream/gateway templates, access class and scope, an explicit
+`none`/`optional`/`required` Bearer policy, reviewed request schemas,
+request-body policy, and allowed response status/media metadata. It does not
+contain response DTOs and does not make any route reachable by itself.
 
 The generated file combines the immutable official snapshot with the narrowly
 reviewed policies in `openapi/solved-v4.gateway-overrides.json`. The overlay is

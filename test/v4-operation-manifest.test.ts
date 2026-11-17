@@ -43,6 +43,50 @@ test('generated operation manifest covers the complete stable catalog', () => {
     ).length,
     53,
   );
+  const bearerPolicyCounts = { none: 0, optional: 0, required: 0 };
+  const getBearerPolicyCounts = { none: 0, optional: 0, required: 0 };
+  for (const [, operation] of entries) {
+    const expectedBearer =
+      operation.access.class === 'user'
+        ? 'required'
+        : operation.access.class === 'public' &&
+            'scope' in operation.access
+          ? 'optional'
+          : 'none';
+    assert.equal(operation.access.bearer, expectedBearer);
+    bearerPolicyCounts[operation.access.bearer] += 1;
+    if (operation.method === 'GET') {
+      getBearerPolicyCounts[operation.access.bearer] += 1;
+    }
+  }
+  assert.deepEqual(bearerPolicyCounts, {
+    none: 51,
+    optional: 4,
+    required: 28,
+  });
+  assert.deepEqual(getBearerPolicyCounts, {
+    none: 49,
+    optional: 4,
+    required: 18,
+  });
+  const optionalBearerKeys = [
+    'GET /api/v4/problems/{problemId}',
+    'GET /api/v4/users/{handle}/bookmarks',
+    'GET /api/v4/users/{handle}/bookmarks/{slug}',
+    'GET /api/v4/users/{handle}/contributions',
+  ] as const;
+  assert.deepEqual(
+    entries
+      .filter(([, operation]) => operation.access.bearer === 'optional')
+      .map(([key]) => key),
+    optionalBearerKeys,
+  );
+  for (const key of optionalBearerKeys) {
+    const responses: Readonly<Record<string, V4ResponseContract>> =
+      V4_OPERATION_MANIFEST[key].responses;
+    assert.equal(responses['401'], undefined);
+    assert.equal(responses['403'], undefined);
+  }
   assert.equal(
     entries.reduce(
       (count, [, operation]) => count + operation.parameters.path.length,

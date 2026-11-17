@@ -10,6 +10,7 @@ export const V4_OPERATION_SNAPSHOT_SHA256 = "312abfb4677fc67d914f6a357ff5b89d170
 export const V4_OPERATION_MANIFEST = {
   "DELETE /api/v4/account/bookmark-favorites/{handle}/{slug}": {
     "access": {
+      "bearer": "required",
       "class": "user",
       "scope": "bookmarks.write"
     },
@@ -82,6 +83,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "DELETE /api/v4/account/bookmarks/{slug}": {
     "access": {
+      "bearer": "required",
       "class": "user",
       "scope": "bookmarks.write"
     },
@@ -148,6 +150,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/account/backgrounds": {
     "access": {
+      "bearer": "required",
       "class": "user",
       "scope": "collection"
     },
@@ -198,6 +201,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/account/bans": {
     "access": {
+      "bearer": "required",
       "class": "user",
       "scope": "standing"
     },
@@ -248,6 +252,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/account/bookmark-favorites": {
     "access": {
+      "bearer": "required",
       "class": "user",
       "scope": "bookmarks"
     },
@@ -311,6 +316,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/account/bookmarks": {
     "access": {
+      "bearer": "required",
       "class": "user",
       "scope": "bookmarks"
     },
@@ -372,6 +378,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/account/collection": {
     "access": {
+      "bearer": "required",
       "class": "user",
       "scope": "collection"
     },
@@ -494,6 +501,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/account/consents": {
     "access": {
+      "bearer": "required",
       "class": "user",
       "scope": "profile"
     },
@@ -544,6 +552,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/account/items": {
     "access": {
+      "bearer": "required",
       "class": "user",
       "scope": "collection"
     },
@@ -606,6 +615,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/account/profile": {
     "access": {
+      "bearer": "required",
       "class": "user",
       "scope": "profile.personal"
     },
@@ -656,6 +666,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/account/settings": {
     "access": {
+      "bearer": "required",
       "class": "user",
       "scope": "settings"
     },
@@ -706,6 +717,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/account/standing": {
     "access": {
+      "bearer": "required",
       "class": "user",
       "scope": "standing"
     },
@@ -756,6 +768,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/account/wallet": {
     "access": {
+      "bearer": "required",
       "class": "user",
       "scope": "wallet"
     },
@@ -806,6 +819,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/account/wallet/history": {
     "access": {
+      "bearer": "required",
       "class": "user",
       "scope": "wallet"
     },
@@ -878,6 +892,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/achievements": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/achievements",
@@ -925,6 +940,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/achievements/for-problem/{problemId}": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/achievements/for-problem/{problemId}",
@@ -983,6 +999,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/achievements/items/{kind}/{key}": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/achievements/items/{kind}/{key}",
@@ -1062,6 +1079,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/achievements/items/{kind}/{key}/holders": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/achievements/items/{kind}/{key}/holders",
@@ -1156,6 +1174,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/affiliations/{id}": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/affiliations/{id}",
@@ -1221,6 +1240,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/bookmarks": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/bookmarks",
@@ -1293,6 +1313,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/health": {
     "access": {
+      "bearer": "none",
       "class": "open"
     },
     "gatewayPath": "/solved/v4/health",
@@ -1328,6 +1349,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/help/{slug}": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/help/{slug}",
@@ -1393,6 +1415,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/me": {
     "access": {
+      "bearer": "required",
       "class": "user",
       "scope": "profile"
     },
@@ -1443,6 +1466,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/me/emoticons": {
     "access": {
+      "bearer": "required",
       "class": "user",
       "scope": "collection"
     },
@@ -1493,6 +1517,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/me/tag-progress": {
     "access": {
+      "bearer": "required",
       "class": "user",
       "scope": "solves"
     },
@@ -1543,6 +1568,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/policies/{slug}": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/policies/{slug}",
@@ -1616,6 +1642,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/policies/{slug}/{ref}": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/policies/{slug}/{ref}",
@@ -1710,6 +1737,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/posts/help": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/posts/help",
@@ -1756,6 +1784,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/posts/help/page": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/posts/help/page",
@@ -1821,6 +1850,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/posts/notice": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/posts/notice",
@@ -1889,6 +1919,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/posts/notice/{slug}": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/posts/notice/{slug}",
@@ -1955,6 +1986,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/problems": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/problems",
@@ -2053,6 +2085,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/problems/{problemId}": {
     "access": {
+      "bearer": "optional",
       "class": "public",
       "scope": "solves"
     },
@@ -2118,6 +2151,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/problems/{problemId}/reports": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/problems/{problemId}/reports",
@@ -2193,6 +2227,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/problems/{problemId}/votes": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/problems/{problemId}/votes",
@@ -2297,6 +2332,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/problems/{problemId}/votes/me": {
     "access": {
+      "bearer": "required",
       "class": "user",
       "scope": "votes"
     },
@@ -2376,6 +2412,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/problems/{problemId}/votes/summary": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/problems/{problemId}/votes/summary",
@@ -2454,6 +2491,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/rankings/affiliation-board": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/rankings/affiliation-board",
@@ -2530,6 +2568,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/rankings/affiliations": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/rankings/affiliations",
@@ -2587,6 +2626,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/rankings/affiliations/{affiliationId}": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/rankings/affiliations/{affiliationId}",
@@ -2652,6 +2692,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/rankings/regions": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/rankings/regions",
@@ -2687,6 +2728,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/rankings/regions/{countryCode}": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/rankings/regions/{countryCode}",
@@ -2746,6 +2788,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/rankings/reverse-rivals": {
     "access": {
+      "bearer": "required",
       "class": "user",
       "scope": "rivals"
     },
@@ -2808,6 +2851,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/rankings/rivals": {
     "access": {
+      "bearer": "required",
       "class": "user",
       "scope": "rivals"
     },
@@ -2870,6 +2914,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/rankings/tags": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/rankings/tags",
@@ -2916,6 +2961,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/rankings/tags/{key}": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/rankings/tags/{key}",
@@ -2982,6 +3028,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/rankings/users": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/rankings/users",
@@ -3044,6 +3091,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/rankings/users/search": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/rankings/users/search",
@@ -3105,6 +3153,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/search/analyze": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/search/analyze",
@@ -3151,6 +3200,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/search/random-problem": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/search/random-problem",
@@ -3204,6 +3254,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/search/suggest": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/search/suggest",
@@ -3261,6 +3312,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/site/stats": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/site/stats",
@@ -3296,6 +3348,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/sources": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/sources",
@@ -3331,6 +3384,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/sources/contests/{id}": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/sources/contests/{id}",
@@ -3384,6 +3438,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/sources/groups/{id}": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/sources/groups/{id}",
@@ -3437,6 +3492,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/sources/oj/{ojId}/contests/{nativeId}": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/sources/oj/{ojId}/contests/{nativeId}",
@@ -3502,6 +3558,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/sources/oj/{ojId}/groups/{nativeId}": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/sources/oj/{ojId}/groups/{nativeId}",
@@ -3567,6 +3624,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/tags": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/tags",
@@ -3602,6 +3660,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/tags/{key}": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/tags/{key}",
@@ -3656,6 +3715,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/users/{handle}": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/users/{handle}",
@@ -3721,6 +3781,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/users/{handle}/achievements": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/users/{handle}/achievements",
@@ -3798,6 +3859,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/users/{handle}/achievements/summary": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/users/{handle}/achievements/summary",
@@ -3864,6 +3926,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/users/{handle}/activity/days": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/users/{handle}/activity/days",
@@ -3946,6 +4009,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/users/{handle}/activity/feed": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/users/{handle}/activity/feed",
@@ -4041,6 +4105,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/users/{handle}/badge-stand": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/users/{handle}/badge-stand",
@@ -4107,6 +4172,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/users/{handle}/bookmarks": {
     "access": {
+      "bearer": "optional",
       "class": "public",
       "scope": "bookmarks"
     },
@@ -4175,6 +4241,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/users/{handle}/bookmarks/{slug}": {
     "access": {
+      "bearer": "optional",
       "class": "public",
       "scope": "bookmarks"
     },
@@ -4294,6 +4361,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/users/{handle}/collection": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/users/{handle}/collection",
@@ -4420,6 +4488,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/users/{handle}/contributions": {
     "access": {
+      "bearer": "optional",
       "class": "public",
       "scope": "votes"
     },
@@ -4538,6 +4607,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/users/{handle}/rating/history": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/users/{handle}/rating/history",
@@ -4607,6 +4677,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/users/{handle}/reputation": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/users/{handle}/reputation",
@@ -4676,6 +4747,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/users/{handle}/reputation/log": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/users/{handle}/reputation/log",
@@ -4741,6 +4813,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "GET /api/v4/users/{handle}/tags/{key}/histogram": {
     "access": {
+      "bearer": "none",
       "class": "public"
     },
     "gatewayPath": "/solved/v4/users/{handle}/tags/{key}/histogram",
@@ -4806,6 +4879,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "PATCH /api/v4/account/bookmarks/{slug}": {
     "access": {
+      "bearer": "required",
       "class": "user",
       "scope": "bookmarks.write"
     },
@@ -4932,6 +5006,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "PATCH /api/v4/account/bookmarks/{slug}/problems/{problemId}": {
     "access": {
+      "bearer": "required",
       "class": "user",
       "scope": "bookmarks.write"
     },
@@ -5037,6 +5112,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "PATCH /api/v4/account/settings": {
     "access": {
+      "bearer": "required",
       "class": "user",
       "scope": "settings.write"
     },
@@ -5337,6 +5413,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "POST /api/v4/account/bookmark-favorites/{handle}/{slug}": {
     "access": {
+      "bearer": "required",
       "class": "user",
       "scope": "bookmarks.write"
     },
@@ -5416,6 +5493,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "POST /api/v4/account/bookmarks": {
     "access": {
+      "bearer": "required",
       "class": "user",
       "scope": "bookmarks.write"
     },
@@ -5537,6 +5615,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "POST /api/v4/account/bookmarks/order": {
     "access": {
+      "bearer": "required",
       "class": "user",
       "scope": "bookmarks.write"
     },
@@ -5617,6 +5696,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "POST /api/v4/account/bookmarks/{slug}/problems": {
     "access": {
+      "bearer": "required",
       "class": "user",
       "scope": "bookmarks.write"
     },
@@ -5717,6 +5797,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "POST /api/v4/account/bookmarks/{slug}/problems/remove": {
     "access": {
+      "bearer": "required",
       "class": "user",
       "scope": "bookmarks.write"
     },
@@ -5810,6 +5891,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "POST /api/v4/oauth/revoke": {
     "access": {
+      "bearer": "none",
       "class": "app"
     },
     "gatewayPath": "/solved/v4/oauth/revoke",
@@ -5860,6 +5942,7 @@ export const V4_OPERATION_MANIFEST = {
   },
   "POST /api/v4/oauth/token": {
     "access": {
+      "bearer": "none",
       "class": "app"
     },
     "gatewayPath": "/solved/v4/oauth/token",

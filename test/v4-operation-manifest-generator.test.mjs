@@ -50,6 +50,16 @@ test('generator emits the committed deterministic 83-operation manifest', async 
 
   assert.equal(Object.keys(generated.manifest).length, 83);
   assert.equal(generated.publicOpenGetCount, 53);
+  assert.deepEqual(generated.bearerPolicyCounts, {
+    none: 51,
+    optional: 4,
+    required: 28,
+  });
+  assert.deepEqual(generated.getBearerPolicyCounts, {
+    none: 49,
+    optional: 4,
+    required: 18,
+  });
   assert.deepEqual(
     generated.requestMetrics,
     EXPECTED_REQUEST_SCHEMA_METRICS,
