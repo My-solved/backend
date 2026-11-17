@@ -104,6 +104,36 @@ affiliation-ranking path parameter is marked optional and nullable by the
 source. The raw snapshot is authoritative and intentionally does not patch
 those omissions.
 
+### Generated wire types
+
+The pinned snapshot generates two compile-time-only artifacts:
+
+- `src/generated/solved-v4.openapi.d.ts` contains the complete OpenAPI 3.1 wire
+  types produced by the exact dev dependency `openapi-typescript@7.13.0`.
+- `src/generated/v4-wire-types.d.ts` maps all 83 operations by stable
+  `METHOD /api/v4/path` keys and exports `V4Operation`, `PathParams`, `Query`,
+  `RequestBody`, `ResponseStatus`, and `ResponseBody` helpers.
+
+Regenerate and review them after deliberately updating the snapshot:
+
+```sh
+npm run openapi:types:update
+git diff -- src/generated/
+npm test
+```
+
+Normal tests run `npm run openapi:types:check`, which regenerates from local
+files only and fails when either committed artifact is stale. Generated output
+has no timestamp and object/member ordering is deterministic.
+
+These are transport DTOs, not domain models. The gateway does not deserialize
+or runtime-validate upstream responses against them. `RequestBody` describes a
+declared payload shape but does not decide whether a body is required; that is
+reserved for the reviewed runtime operation manifest. The OAuth token and
+revocation bodies intentionally remain `never` because the official document
+has no schemas for them. A later reviewed supplement must model those gaps
+without editing or disguising the official generated contract.
+
 ## Load and smoke verification
 
 Run the bounded mock load harness without solved.ac credentials or network
