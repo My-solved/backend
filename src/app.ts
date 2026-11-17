@@ -10,9 +10,12 @@ import {
   type ProxyDependencies,
   UpstreamError,
 } from './proxy-handler.js';
+import {
+  parseRequestTarget,
+  type ParsedRequestTarget,
+} from './request-target.js';
 import { findRoute } from './routes.js';
 
-const MAX_REQUEST_TARGET_BYTES = 8_192;
 export const DEFAULT_MAX_CONCURRENT_REQUESTS = 8;
 
 const CORS_HEADERS = Object.freeze({
@@ -82,44 +85,11 @@ function errorResponse(
   );
 }
 
-function parseRequestUrl(rawUrl: string | undefined): URL | undefined {
-  if (
-    rawUrl === undefined ||
-    !rawUrl.startsWith('/') ||
-    rawUrl.startsWith('//') ||
-    rawUrl.includes('#') ||
-    /[\u0000-\u0020\u007f]/u.test(rawUrl) ||
-    Buffer.byteLength(rawUrl, 'utf8') > MAX_REQUEST_TARGET_BYTES
-  ) {
-    return undefined;
-  }
-
-  const rawPath = rawUrl.split('?', 1)[0] ?? '';
-  for (const segment of rawPath.split('/')) {
-    let decoded: string;
-    try {
-      decoded = decodeURIComponent(segment);
-    } catch {
-      return undefined;
-    }
-    if (
-      decoded === '.' ||
-      decoded === '..' ||
-      decoded.includes('/') ||
-      decoded.includes('\\')
-    ) {
-      return undefined;
-    }
-  }
-  try {
-    return new URL(rawUrl, 'http://gateway.invalid');
-  } catch {
-    return undefined;
-  }
-}
-
-function isKnownPath(pathname: string): boolean {
-  return pathname === '/healthz' || findRoute(pathname) !== undefined;
+function isKnownPath(requestTarget: ParsedRequestTarget): boolean {
+  return (
+    requestTarget.pathname === '/healthz' ||
+    findRoute(requestTarget.decodedPathSegments) !== undefined
+  );
 }
 
 function hasRequestBody(request: IncomingMessage): boolean {
@@ -141,20 +111,20 @@ function bypassesConcurrencyLimit(request: GatewayRequest): boolean {
   if (method !== 'GET') {
     return false;
   }
-  const requestUrl = parseRequestUrl(request.url);
-  return requestUrl?.pathname === '/healthz';
+  const requestTarget = parseRequestTarget(request.url);
+  return requestTarget?.pathname === '/healthz';
 }
 
 export async function handleGatewayRequest(
   request: GatewayRequest,
   dependencies: GatewayDependencies = {},
 ): Promise<GatewayResponse> {
-  const requestUrl = parseRequestUrl(request.url);
-  if (requestUrl === undefined) {
+  const requestTarget = parseRequestTarget(request.url);
+  if (requestTarget === undefined) {
     return errorResponse(400, 'invalid_request');
   }
 
-  if (!isKnownPath(requestUrl.pathname)) {
+  if (!isKnownPath(requestTarget)) {
     return errorResponse(404, 'not_found');
   }
 
@@ -168,12 +138,12 @@ export async function handleGatewayRequest(
     });
   }
 
-  if (requestUrl.pathname === '/healthz') {
+  if (requestTarget.pathname === '/healthz') {
     return jsonResponse(200, { status: 'ok' }, { 'cache-control': 'no-store' });
   }
   try {
-    const { upstreamUrl } = resolveProxyRequest(
-      requestUrl,
+    const { upstreamUrl, responsePolicy } = resolveProxyRequest(
+      requestTarget,
       dependencies.upstreamBaseUrl ?? SOLVED_API_BASE_URL,
     );
     const {
@@ -184,10 +154,14 @@ export async function handleGatewayRequest(
     if (credentials === undefined) {
       return errorResponse(503, 'service_unavailable');
     }
-    const upstreamResponse = await proxyRequest(upstreamUrl, {
-      ...proxyDependencies,
-      credentials,
-    });
+    const upstreamResponse = await proxyRequest(
+      upstreamUrl,
+      responsePolicy,
+      {
+        ...proxyDependencies,
+        credentials,
+      },
+    );
     return response(
       upstreamResponse.status,
       upstreamResponse.body,

@@ -5,29 +5,31 @@ solved.ac v4 API. Each deployment belongs to one registered solved.ac app and
 injects that app's credentials only for reviewed `/solved/v4/*` operations.
 
 The service has no database, cache, login flow, user access token, BOJ
-credential, or runtime package dependency. The current surface accepts only
-allowlisted `GET` operations and forwards them to
-`https://solved.ac/api/v4/` with credentials from mounted secret files.
+credential, or runtime package dependency. Its current runtime surface is
+generated from the reviewed operation manifest and contains exactly all 53
+runtime-enabled `GET` operations whose official access class is `open` or
+`public`. Fixed `/solved/v4/*` templates map only to their corresponding
+`https://solved.ac/api/v4/*` templates, with app credentials read from mounted
+secret files.
 
-## Initial official v4 allowlist
-
-- `/solved/v4/users/{handle}`
-- `/solved/v4/users/{handle}/activity/days`
-- `/solved/v4/users/{handle}/reputation`
-- `/solved/v4/users/{handle}/contributions`
-- `/solved/v4/problems`
-- `/solved/v4/rankings/users/search`
-- `/solved/v4/tags`
-- `/solved/v4/tags/{key}`
-- `/solved/v4/achievements/items/{kind}/{key}`
-
-This is an intentionally strict initial subset, not the final v4 surface. New
-operations should be generated or reviewed against the current official OpenAPI
-contract before they enter the allowlist. Arbitrary upstream paths, methods,
-query parameters, and bodies remain rejected. Request credentials and cookies
-are never forwarded upstream. In particular, caller
+User- and app-access operations, `POST`, `PATCH`, `DELETE`, OAuth, request
+bodies, arbitrary upstream paths, unknown query parameters, and duplicate query
+parameters remain unreachable. The four public operations that carry a scope
+(`solves`, `bookmarks`, or `votes`) use anonymous/public semantics for now; the
+gateway does not accept or forward a caller bearer token. Caller
 `Authorization`, `Cookie`, `x-client-id`, and `x-client-secret` values are
-ignored. `/healthz` is the only health endpoint.
+always ignored.
+
+URI values are decoded once, checked against the generated path/query schemas,
+and encoded once into the fixed upstream template. The gateway does not inject
+OpenAPI defaults. Upstream statuses, JSON media types, and required headers are
+checked against the operation response policy before a body is read; undeclared
+responses fail as a generic `502 upstream_contract` instead of being passed
+through.
+
+`/healthz` is the local, quota-free process health endpoint.
+`/solved/v4/health` is a distinct official v4 operation and is forwarded
+upstream like the other manifest routes.
 
 This repository is reusable, but a deployed instance is not a communal public
 relay. Every forwarded request spends the operator's shared solved.ac app quota.
@@ -91,9 +93,10 @@ component-schema counts change. Review and update those invariants in
 committed snapshot preserves the source schemas and arrays as-is;
 canonicalization only orders JSON object keys and formatting.
 
-This import does **not** expand the running gateway. Runtime routing remains the
-strict initial `GET` subset listed above until subsequent reviewed generators
-and route PRs consume this contract.
+Runtime routing consumes this contract but still fails closed: only the 53
+runtime-enabled `open`/`public` `GET` entries are compiled into the route trie.
+The remaining manifest entries do not become reachable merely by existing in
+the generated data.
 
 The current upstream document also has known gaps that must remain explicit in
 follow-up generation rather than being silently guessed: it declares no

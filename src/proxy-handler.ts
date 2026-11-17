@@ -1,4 +1,5 @@
 import type { SolvedClientCredentials } from './config.js';
+import type { V4ResponseContract } from './v4-operation-contract.js';
 
 export const DEFAULT_UPSTREAM_TIMEOUT_MS = 8_000;
 export const DEFAULT_MAX_RESPONSE_BYTES = 5 * 1_024 * 1_024;
@@ -33,12 +34,65 @@ export class UpstreamError extends Error {
       | 'upstream_unavailable'
       | 'upstream_timeout'
       | 'upstream_redirect'
+      | 'upstream_contract'
       | 'upstream_response_too_large',
     message: string,
   ) {
     super(message);
     this.name = 'UpstreamError';
   }
+}
+
+async function cancelResponseBody(response: Response): Promise<void> {
+  try {
+    await response.body?.cancel();
+  } catch {
+    // The contract error is authoritative; cancellation is best effort.
+  }
+}
+
+async function validateResponseContract(
+  response: Response,
+  responsePolicy: Readonly<Record<string, V4ResponseContract>>,
+): Promise<V4ResponseContract> {
+  const contract = responsePolicy[String(response.status)];
+  if (contract === undefined) {
+    await cancelResponseBody(response);
+    throw new UpstreamError(
+      502,
+      'upstream_contract',
+      'Upstream returned an undeclared status',
+    );
+  }
+
+  for (const name of contract.requiredHeaders) {
+    const value = response.headers.get(name);
+    if (value === null || value.trim().length === 0) {
+      await cancelResponseBody(response);
+      throw new UpstreamError(
+        502,
+        'upstream_contract',
+        'Upstream omitted a required response header',
+      );
+    }
+  }
+
+  const contentType = response.headers.get('content-type');
+  const mediaType = contentType?.split(';', 1)[0]?.trim().toLowerCase();
+  const mediaTypeAllowed =
+    contract.mediaTypes.length === 0
+      ? contentType === null
+      : mediaType !== undefined &&
+        contract.mediaTypes.some((candidate) => candidate === mediaType);
+  if (!mediaTypeAllowed) {
+    await cancelResponseBody(response);
+    throw new UpstreamError(
+      502,
+      'upstream_contract',
+      'Upstream returned an undeclared media type',
+    );
+  }
+  return contract;
 }
 
 async function readLimitedBody(
@@ -98,6 +152,7 @@ async function readLimitedBody(
 
 export async function proxyRequest(
   upstreamUrl: URL,
+  responsePolicy: Readonly<Record<string, V4ResponseContract>>,
   dependencies: ProxyDependencies = {},
 ): Promise<ProxyResponse> {
   const fetchImplementation = dependencies.fetch ?? globalThis.fetch;
@@ -134,13 +189,18 @@ export async function proxyRequest(
     });
 
     if (response.status >= 300 && response.status < 400) {
-      await response.body?.cancel();
+      await cancelResponseBody(response);
       throw new UpstreamError(
         502,
         'upstream_redirect',
         'Upstream redirects are not allowed',
       );
     }
+
+    const responseContract = await validateResponseContract(
+      response,
+      responsePolicy,
+    );
 
     const responseHeaders: Record<string, string> = {};
     for (const name of SAFE_RESPONSE_HEADERS) {
@@ -150,10 +210,18 @@ export async function proxyRequest(
       }
     }
 
+    const body = await readLimitedBody(response, maxResponseBytes);
+    if (responseContract.mediaTypes.length === 0 && body.byteLength !== 0) {
+      throw new UpstreamError(
+        502,
+        'upstream_contract',
+        'Upstream returned a body for a bodyless response',
+      );
+    }
     return Object.freeze({
       status: response.status,
       headers: Object.freeze(responseHeaders),
-      body: await readLimitedBody(response, maxResponseBytes),
+      body,
     });
   } catch (error) {
     if (error instanceof UpstreamError) {
