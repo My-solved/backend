@@ -34,6 +34,19 @@ jobs:
       - name: Build and test
         run: npm test
 
+      - name: Prepare non-production test credentials
+        run: |
+          credential_dir="$RUNNER_TEMP/solved-proxy"
+          client_id_file="$credential_dir/client-id"
+          client_secret_file="$credential_dir/client-secret"
+          mkdir -p "$credential_dir"
+          printf '%s' 'ci-client-id' > "$client_id_file"
+          printf '%s' 'ci-client-secret' > "$client_secret_file"
+          {
+            printf 'SOLVED_CLIENT_ID_FILE=%s\n' "$client_id_file"
+            printf 'SOLVED_CLIENT_SECRET_FILE=%s\n' "$client_secret_file"
+          } >> "$GITHUB_ENV"
+
       - name: Validate Compose configuration
         run: docker compose config --quiet
 
@@ -48,6 +61,10 @@ jobs:
             --tmpfs /tmp:size=16m,mode=1777 \
             --cap-drop ALL \
             --security-opt no-new-privileges:true \
+            --mount type=bind,source="$SOLVED_CLIENT_ID_FILE",target=/run/secrets/solved_client_id,readonly \
+            --mount type=bind,source="$SOLVED_CLIENT_SECRET_FILE",target=/run/secrets/solved_client_secret,readonly \
+            --env SOLVED_CLIENT_ID_FILE=/run/secrets/solved_client_id \
+            --env SOLVED_CLIENT_SECRET_FILE=/run/secrets/solved_client_secret \
             --publish 127.0.0.1:13000:3000 \
             solved-proxy:ci)"
           trap 'docker rm --force "${container_id}"' EXIT
