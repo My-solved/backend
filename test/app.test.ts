@@ -10,6 +10,8 @@ const credentials = Object.freeze({
   clientId: 'trusted-client-id',
   clientSecret: 'trusted-client-secret',
 });
+const jsonUpstreamResponse = (body = '{}'): Response =>
+  new Response(body, { headers: { 'content-type': 'application/json' } });
 
 class FakeServerResponse extends EventEmitter {
   status: number | undefined;
@@ -80,6 +82,22 @@ test('health endpoint never calls upstream', async () => {
   assert.equal(calls, 0);
 });
 
+test('official v4 health remains a credentialed upstream operation', async () => {
+  let observedUrl = '';
+  const result = await handleGatewayRequest(
+    { method: 'GET', url: '/solved/v4/health' },
+    {
+      credentials,
+      fetch: async (input) => {
+        observedUrl = input.toString();
+        return jsonUpstreamResponse('{"status":"ok"}');
+      },
+    },
+  );
+  assert.equal(result.status, 200);
+  assert.equal(observedUrl, 'https://solved.ac/api/v4/health');
+});
+
 test('does not expose an unrelated compatibility health route', async () => {
   const result = await handleGatewayRequest({ method: 'GET', url: '/api' });
 
@@ -94,7 +112,7 @@ test('returns public CORS preflight without calling upstream', async () => {
     {
       fetch: async () => {
         calls += 1;
-        return new Response('{}');
+        return jsonUpstreamResponse();
       },
     },
   );
@@ -123,7 +141,7 @@ test('rejects an unknown path before calling upstream', async () => {
     {
       fetch: async () => {
         calls += 1;
-        return new Response('{}');
+        return jsonUpstreamResponse();
       },
     },
   );
@@ -157,7 +175,7 @@ for (const url of removedV3Targets) {
       {
         fetch: async () => {
           calls += 1;
-          return new Response('{}');
+          return jsonUpstreamResponse();
         },
       },
     );
@@ -281,7 +299,7 @@ test('requires server credentials before making a v4 request', async () => {
     {
       fetch: async () => {
         calls += 1;
-        return new Response('{}');
+        return jsonUpstreamResponse();
       },
     },
   );
@@ -302,13 +320,13 @@ test('uses only server credentials for v4 even when the caller sends headers', a
     },
     fetch: async (_input, init) => {
       observedHeaders = init?.headers;
-      return new Response('{}');
+      return jsonUpstreamResponse();
     },
   });
   const response = new FakeServerResponse();
   const finished = once(response, 'finish');
   handler(
-    incomingRequest('/solved/v4/users/tourist', {
+    incomingRequest('/solved/v4/users/tourist/contributions', {
       authorization: 'Bearer caller-token',
       cookie: 'session=caller-cookie',
       'x-client-id': 'caller-client-id',
@@ -326,13 +344,32 @@ test('uses only server credentials for v4 even when the caller sends headers', a
   });
 });
 
+test('maps undeclared upstream status to a generic contract error', async () => {
+  const result = await handleGatewayRequest(
+    { method: 'GET', url: '/solved/v4/users/tourist' },
+    {
+      credentials,
+      fetch: async () =>
+        new Response('{"private":"detail"}', {
+          status: 500,
+          headers: { 'content-type': 'application/json' },
+        }),
+    },
+  );
+  assert.equal(result.status, 502);
+  assert.deepEqual(JSON.parse(text(result.body)), {
+    error: 'upstream_contract',
+  });
+  assert.doesNotMatch(text(result.body), /private/u);
+});
+
 test('rejects request bodies before calling upstream', () => {
   let calls = 0;
   const handler = createRequestHandler({
     credentials,
     fetch: async () => {
       calls += 1;
-      return new Response('{}');
+      return jsonUpstreamResponse();
     },
   });
   const response = new FakeServerResponse();
@@ -385,7 +422,7 @@ test('caps concurrent proxy requests while health remains available', async () =
   assert.equal(health.status, 200);
 
   const firstFinished = once(first, 'finish');
-  pending[0]?.(new Response('{}'));
+  pending[0]?.(jsonUpstreamResponse());
   await firstFinished;
 
   const next = new FakeServerResponse();
@@ -396,7 +433,7 @@ test('caps concurrent proxy requests while health remains available', async () =
   await new Promise<void>((resolve) => setImmediate(resolve));
   assert.equal(pending.length, 2);
   const nextFinished = once(next, 'finish');
-  pending[1]?.(new Response('{}'));
+  pending[1]?.(jsonUpstreamResponse());
   await nextFinished;
 });
 

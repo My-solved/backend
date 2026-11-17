@@ -2,109 +2,278 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { ContractError, resolveProxyRequest } from '../src/contract.js';
-import { ROUTES } from '../src/routes.js';
+import { parseRequestTarget } from '../src/request-target.js';
+import {
+  compilePublicGetRouter,
+  PUBLIC_GET_OPERATION_KEYS,
+  PUBLIC_GET_ROUTES,
+  type PublicGetRoute,
+} from '../src/routes.js';
+import type { V4RequestSchema } from '../src/v4-operation-contract.js';
+import { validateUriValue } from '../src/uri-schema.js';
 
-const gatewayUrl = (requestTarget: string): URL =>
-  new URL(requestTarget, 'http://gateway.invalid');
+function requestTarget(raw: string) {
+  const parsed = parseRequestTarget(raw);
+  assert.ok(parsed, `invalid test request target: ${raw}`);
+  return parsed;
+}
 
-test('the initial official v4 surface is limited to 9 routes', () => {
-  assert.equal(Object.keys(ROUTES).length, 9);
-});
+function sampleUriValue(schema: V4RequestSchema): string {
+  if (schema.kind === 'integer') {
+    const lowerBound = Math.max(
+      schema.minimum ?? Number.MIN_SAFE_INTEGER,
+      schema.exclusiveMinimum === undefined
+        ? Number.MIN_SAFE_INTEGER
+        : schema.exclusiveMinimum + 1,
+      0,
+    );
+    assert.ok(schema.maximum === undefined || lowerBound <= schema.maximum);
+    const value = String(lowerBound);
+    assert.equal(validateUriValue(value, schema), true);
+    return value;
+  }
+  if (schema.kind === 'anyOf') {
+    for (const option of schema.options) {
+      try {
+        return sampleUriValue(option);
+      } catch {
+        // Try the next reviewed alternative.
+      }
+    }
+    throw new Error('could not build an anyOf URI sample');
+  }
+  assert.equal(schema.kind, 'string');
+  const enumValue = schema.enum?.find(
+    (candidate): candidate is string => candidate !== null,
+  );
+  const minimumText = 'a'.repeat(Math.max(schema.minLength ?? 1, 1));
+  const candidates = [
+    enumValue,
+    minimumText,
+    'a',
+    'aa',
+    'tourist',
+    'ko',
+    '2026-01-01',
+    '2026-01',
+    '20260101',
+    'v1',
+    'foo/bar',
+    'dynamic_programming',
+  ].filter((candidate): candidate is string => candidate !== undefined);
+  const value = candidates.find((candidate) =>
+    validateUriValue(candidate, schema),
+  );
+  if (value === undefined) {
+    throw new Error(`could not build a URI sample for ${JSON.stringify(schema)}`);
+  }
+  return value;
+}
 
-const mappings = [
-  ['/solved/v4/users/tourist', 'users/tourist'],
-  [
-    '/solved/v4/users/tourist/activity/days?from=2026-01-01&to=2026-11-17',
-    'users/tourist/activity/days?from=2026-01-01&to=2026-11-17',
-  ],
-  [
-    '/solved/v4/users/tourist/reputation?range=1y',
-    'users/tourist/reputation?range=1y',
-  ],
-  [
-    '/solved/v4/users/tourist/contributions?page=2&limit=20&sort=helpful&only=vouched&commented=true',
-    'users/tourist/contributions?page=2&limit=20&sort=helpful&only=vouched&commented=true',
-  ],
-  [
-    '/solved/v4/problems?q=%23dp&page=2&sort=solved&direction=desc&seed=stable',
-    'problems?page=2&q=%23dp&sort=solved&direction=desc&seed=stable',
-  ],
-  [
-    '/solved/v4/rankings/users/search?q=tourist&sort=rating',
-    'rankings/users/search?q=tourist&sort=rating',
-  ],
-  ['/solved/v4/tags', 'tags'],
-  ['/solved/v4/tags/dynamic_programming', 'tags/dynamic_programming'],
-  [
-    '/solved/v4/achievements/items/background/anniversary_1st?lang=ko',
-    'achievements/items/background/anniversary_1st?lang=ko',
-  ],
-] as const;
-
-for (const [requestTarget, upstreamTarget] of mappings) {
-  test(`maps official v4 route ${requestTarget}`, () => {
-    const { upstreamUrl } = resolveProxyRequest(gatewayUrl(requestTarget));
-    assert.equal(upstreamUrl.href, `https://solved.ac/api/v4/${upstreamTarget}`);
+function replacePathParameters(
+  template: string,
+  values: Readonly<Record<string, string>>,
+): string {
+  return template.replace(/\{([A-Za-z][A-Za-z0-9]*)\}/gu, (_all, name) => {
+    const value = values[name as string];
+    assert.notEqual(value, undefined);
+    return encodeURIComponent(value ?? '');
   });
 }
 
-test('canonicalizes and encodes v4 path parameters exactly once', () => {
-  const { upstreamUrl } = resolveProxyRequest(
-    gatewayUrl('/solved/v4/users/%ED%95%9C%EA%B8%80'),
+test('runtime surface contains exactly the 53 public and open GET operations', () => {
+  assert.equal(PUBLIC_GET_ROUTES.length, 53);
+  assert.equal(PUBLIC_GET_OPERATION_KEYS.length, 53);
+  assert.equal(
+    PUBLIC_GET_ROUTES.every(
+      ({ operation }) =>
+        operation.method === 'GET' &&
+        operation.runtime.enabled &&
+        (operation.access.class === 'open' ||
+          operation.access.class === 'public') &&
+        operation.requestBody === null,
+    ),
+    true,
+  );
+  assert.deepEqual(
+    PUBLIC_GET_OPERATION_KEYS,
+    [...PUBLIC_GET_OPERATION_KEYS].sort(),
+  );
+  assert.equal(new Set(PUBLIC_GET_OPERATION_KEYS).size, 53);
+  assert.ok(PUBLIC_GET_OPERATION_KEYS.includes('GET /api/v4/health'));
+  assert.equal(
+    PUBLIC_GET_OPERATION_KEYS.some((key) => key.includes('/api/v4/account/')),
+    false,
   );
   assert.equal(
-    upstreamUrl.href,
-    'https://solved.ac/api/v4/users/%ED%95%9C%EA%B8%80',
+    PUBLIC_GET_OPERATION_KEYS.some((key) => key.startsWith('POST ')),
+    false,
   );
-  assert.doesNotMatch(upstreamUrl.href, /%25ED/u);
+  assert.deepEqual(
+    PUBLIC_GET_ROUTES.filter(({ operation }) => operation.access.scope).map(
+      ({ key }) => key,
+    ),
+    [
+      'GET /api/v4/problems/{problemId}',
+      'GET /api/v4/users/{handle}/bookmarks',
+      'GET /api/v4/users/{handle}/bookmarks/{slug}',
+      'GET /api/v4/users/{handle}/contributions',
+    ],
+  );
 });
 
-test('preserves supported search options', () => {
-  const { upstreamUrl } = resolveProxyRequest(
-    gatewayUrl(
-      '/solved/v4/problems?q=graph&page=2&sort=average_try&direction=asc&seed=stable',
+for (const route of PUBLIC_GET_ROUTES) {
+  test(`resolves generated public route ${route.key}`, () => {
+    const pathValues = Object.fromEntries(
+      route.operation.parameters.path.map((parameter) => [
+        parameter.name,
+        sampleUriValue(parameter.schema),
+      ]),
+    );
+    const gatewayPath = replacePathParameters(
+      route.operation.gatewayPath,
+      pathValues,
+    );
+    const upstreamPath = replacePathParameters(
+      route.operation.upstreamPath,
+      pathValues,
+    );
+    const query = new URLSearchParams();
+    for (const parameter of route.operation.parameters.query) {
+      if (parameter.required) {
+        query.set(parameter.name, sampleUriValue(parameter.schema));
+      }
+    }
+    const target = query.size === 0 ? gatewayPath : `${gatewayPath}?${query}`;
+    const resolved = resolveProxyRequest(requestTarget(target));
+
+    assert.equal(resolved.operationKey, route.key);
+    assert.equal(resolved.upstreamUrl.origin, 'https://solved.ac');
+    assert.equal(resolved.upstreamUrl.pathname, upstreamPath);
+    assert.deepEqual(
+      [...resolved.upstreamUrl.searchParams.entries()],
+      [...query.entries()].sort(([left], [right]) => left.localeCompare(right)),
+    );
+    assert.equal(resolved.responsePolicy, route.operation.responses);
+  });
+}
+
+const compatibilityMappings = [
+  ['/solved/v4/users/tourist', '/api/v4/users/tourist'],
+  [
+    '/solved/v4/users/tourist/activity/days?from=2026-01-01&to=2026-11-17',
+    '/api/v4/users/tourist/activity/days',
+  ],
+  [
+    '/solved/v4/users/tourist/reputation?range=1y',
+    '/api/v4/users/tourist/reputation',
+  ],
+  [
+    '/solved/v4/users/tourist/contributions?page=2&limit=20&sort=helpful&only=vouched&commented=true',
+    '/api/v4/users/tourist/contributions',
+  ],
+  [
+    '/solved/v4/problems?q=%23dp&page=2&sort=solved&direction=desc&seed=stable',
+    '/api/v4/problems',
+  ],
+  [
+    '/solved/v4/rankings/users/search?q=tourist&sort=rating',
+    '/api/v4/rankings/users/search',
+  ],
+  ['/solved/v4/tags', '/api/v4/tags'],
+  ['/solved/v4/tags/dynamic_programming', '/api/v4/tags/dynamic_programming'],
+  [
+    '/solved/v4/achievements/items/background/anniversary_1st?lang=ko',
+    '/api/v4/achievements/items/background/anniversary_1st',
+  ],
+] as const;
+
+for (const [target, expectedPath] of compatibilityMappings) {
+  test(`preserves existing public mapping ${target}`, () => {
+    const resolved = resolveProxyRequest(requestTarget(target));
+    assert.equal(resolved.upstreamUrl.pathname, expectedPath);
+    const incoming = requestTarget(target).url.searchParams;
+    assert.equal(
+      [...resolved.upstreamUrl.searchParams].length,
+      [...incoming].length,
+    );
+    for (const [name, value] of incoming) {
+      assert.equal(resolved.upstreamUrl.searchParams.get(name), value);
+    }
+  });
+}
+
+test('encodes path and query Unicode exactly once', () => {
+  const profile = resolveProxyRequest(
+    requestTarget('/solved/v4/users/%ED%95%9C%EA%B8%80'),
+  );
+  assert.equal(profile.upstreamUrl.pathname, '/api/v4/users/%ED%95%9C%EA%B8%80');
+  assert.doesNotMatch(profile.upstreamUrl.href, /%25ED/u);
+
+  const search = resolveProxyRequest(
+    requestTarget('/solved/v4/problems?q=%23dp+%40tourist+%ED%95%9C%EA%B8%80'),
+  );
+  assert.equal(search.upstreamUrl.searchParams.get('q'), '#dp @tourist 한글');
+  assert.doesNotMatch(search.upstreamUrl.href, /%2523/u);
+});
+
+test('keeps defaults as annotations and preserves explicit empty query text', () => {
+  const withoutPage = resolveProxyRequest(requestTarget('/solved/v4/problems'));
+  assert.equal(withoutPage.upstreamUrl.search, '');
+  const empty = resolveProxyRequest(requestTarget('/solved/v4/problems?q='));
+  assert.equal(empty.upstreamUrl.searchParams.get('q'), '');
+});
+
+test('does not invent a query limit absent from the manifest schema', () => {
+  const query = 'q'.repeat(101);
+  const resolved = resolveProxyRequest(
+    requestTarget(`/solved/v4/problems?q=${query}`),
+  );
+  assert.equal(resolved.upstreamUrl.searchParams.get('q'), query);
+});
+
+test('uses code-point string lengths and never coerces nullable URI null', () => {
+  assert.doesNotThrow(() =>
+    resolveProxyRequest(
+      requestTarget(`/solved/v4/achievements?lang=${encodeURIComponent('😀'.repeat(16))}`),
     ),
   );
-  assert.equal(
-    upstreamUrl.href,
-    'https://solved.ac/api/v4/problems?page=2&q=graph&sort=average_try&direction=asc&seed=stable',
+  assert.throws(() =>
+    resolveProxyRequest(
+      requestTarget(`/solved/v4/achievements?lang=${encodeURIComponent('😀'.repeat(17))}`),
+    ),
   );
-});
-
-test('encodes solved.ac search syntax and Unicode exactly once', () => {
-  const { upstreamUrl } = resolveProxyRequest(
-    gatewayUrl('/solved/v4/problems?q=%23dp+%40tourist+%ED%95%9C%EA%B8%80'),
-  );
-  assert.equal(upstreamUrl.searchParams.get('q'), '#dp @tourist 한글');
-  assert.match(upstreamUrl.href, /q=%23dp\+%40tourist\+%ED%95%9C%EA%B8%80/u);
-  assert.doesNotMatch(upstreamUrl.href, /%2523/u);
-});
-
-test('preserves an explicit empty optional problem query', () => {
-  const { upstreamUrl } = resolveProxyRequest(
-    gatewayUrl('/solved/v4/problems?q='),
-  );
-  assert.equal(upstreamUrl.searchParams.get('q'), '');
   assert.doesNotThrow(() =>
-    resolveProxyRequest(gatewayUrl('/solved/v4/problems')),
+    resolveProxyRequest(
+      requestTarget('/solved/v4/users/tourist/collection?offset=0'),
+    ),
+  );
+  assert.throws(() =>
+    resolveProxyRequest(
+      requestTarget('/solved/v4/users/tourist/collection?offset=null'),
+    ),
   );
 });
 
-const invalidRequests = [
+const invalidQueries = [
   '/solved/v4/users/tourist/activity/days',
   '/solved/v4/users/tourist/activity/days?from=2026-01-01&to=invalid',
   '/solved/v4/users/tourist/reputation?range=forever',
   '/solved/v4/users/tourist/contributions?limit=21',
   '/solved/v4/problems?page=0',
+  '/solved/v4/problems?page=01',
+  '/solved/v4/problems?page=-0',
+  '/solved/v4/problems?page=1e2',
   '/solved/v4/problems?direction=descending',
+  '/solved/v4/problems?q=a&%71=b',
   '/solved/v4/rankings/users/search',
   '/solved/v4/rankings/users/search?q=a&page=1',
 ] as const;
 
-for (const requestTarget of invalidRequests) {
-  test(`rejects invalid query contract: ${requestTarget.slice(0, 80)}`, () => {
+for (const target of invalidQueries) {
+  test(`rejects invalid query contract: ${target}`, () => {
     assert.throws(
-      () => resolveProxyRequest(gatewayUrl(requestTarget)),
+      () => resolveProxyRequest(requestTarget(target)),
       (error: unknown) =>
         error instanceof ContractError &&
         error.status === 400 &&
@@ -113,55 +282,63 @@ for (const requestTarget of invalidRequests) {
   });
 }
 
-test('rejects paths outside the allowlist', () => {
-  assert.throws(
-    () => resolveProxyRequest(gatewayUrl('/solved/problem/show?problemId=1000')),
-    (error: unknown) =>
-      error instanceof ContractError &&
-      error.status === 404 &&
-      error.code === 'not_found',
+test('re-encodes a literal query percent without a second decode', () => {
+  const resolved = resolveProxyRequest(
+    requestTarget('/solved/v4/problems?q=%252Fetc'),
   );
-  assert.throws(
-    () =>
-      resolveProxyRequest(
-        gatewayUrl('/solved/v4/achievements/items/title/unknown'),
-      ),
-    (error: unknown) =>
-      error instanceof ContractError &&
-      error.status === 404 &&
-      error.code === 'not_found',
+  assert.equal(resolved.upstreamUrl.searchParams.get('q'), '%2Fetc');
+  assert.match(resolved.upstreamUrl.href, /q=%252Fetc/u);
+});
+
+test('route matching gives a literal segment precedence over a parameter', () => {
+  const profile = PUBLIC_GET_ROUTES.find(
+    ({ key }) => key === 'GET /api/v4/users/{handle}',
   );
-  assert.throws(
-    () => resolveProxyRequest(gatewayUrl('/solved/v4/users/%2Fetc')),
-    (error: unknown) =>
-      error instanceof ContractError &&
-      error.status === 404 &&
-      error.code === 'not_found',
+  const tags = PUBLIC_GET_ROUTES.find(
+    ({ key }) => key === 'GET /api/v4/tags',
+  );
+  assert.ok(profile);
+  assert.ok(tags);
+
+  const parameterRoute = structuredClone(profile) as unknown as {
+    key: string;
+    operation: { gatewayPath: string };
+  };
+  parameterRoute.key = 'GET /api/v4/example/{handle}';
+  parameterRoute.operation.gatewayPath = '/solved/v4/example/{handle}';
+  const literalRoute = structuredClone(tags) as unknown as {
+    key: string;
+    operation: { gatewayPath: string };
+  };
+  literalRoute.key = 'GET /api/v4/example/collection';
+  literalRoute.operation.gatewayPath = '/solved/v4/example/collection';
+
+  const router = compilePublicGetRouter([
+    parameterRoute as unknown as PublicGetRoute,
+    literalRoute as unknown as PublicGetRoute,
+  ]);
+  assert.equal(
+    router.match(['solved', 'v4', 'example', 'collection'])?.key,
+    literalRoute.key,
+  );
+  assert.equal(
+    router.match(['solved', 'v4', 'example', 'tourist'])?.key,
+    parameterRoute.key,
   );
 });
 
-const removedV3Routes = [
-  '/solved/user/show?handle=tourist',
-  '/solved/user/grass?handle=tourist',
-  '/solved/user/problem_stats?handle=tourist',
-  '/solved/user/tag_ratings?handle=tourist',
-  '/solved/background/show?backgroundId=balloon',
-  '/solved/badge/show?badgeId=bronze',
-  '/solved/search/problem?query=rsa',
-  '/solved/search/user?query=rsa',
-  '/solved/search/tag?query=rsa',
-  '/solved/user/organizations?handle=tourist',
-  '/solved/user/available_badges?handle=tourist',
-  '/solved/user/top_100?handle=tourist',
-  '/solved/search/suggestion?query=rsa',
-  '/solved/arena/contests',
-  '/solved/site/stats',
+const closedRoutes = [
+  '/solved/v4/account/settings',
+  '/solved/v4/problems/1000/votes/me',
+  '/solved/v4/oauth/token',
+  '/solved/problem/show?problemId=1000',
+  '/solved/v4/achievements/items/title/unknown',
 ] as const;
 
-for (const requestTarget of removedV3Routes) {
-  test(`rejects removed v3 route: ${requestTarget}`, () => {
+for (const target of closedRoutes) {
+  test(`keeps non-public route closed: ${target}`, () => {
     assert.throws(
-      () => resolveProxyRequest(gatewayUrl(requestTarget)),
+      () => resolveProxyRequest(requestTarget(target)),
       (error: unknown) =>
         error instanceof ContractError &&
         error.status === 404 &&
@@ -170,26 +347,37 @@ for (const requestTarget of removedV3Routes) {
   });
 }
 
-test('preserves the upstream problem-search limit response contract', () => {
-  const query = 'q'.repeat(101);
-  const { upstreamUrl } = resolveProxyRequest(
-    gatewayUrl(`/solved/v4/problems?q=${query}`),
+test('route compiler rejects duplicate and ambiguous templates', () => {
+  const profile = PUBLIC_GET_ROUTES.find(
+    ({ key }) => key === 'GET /api/v4/users/{handle}',
+  );
+  assert.ok(profile);
+  assert.throws(
+    () => compilePublicGetRouter([profile, profile]),
+    /duplicate leaf/u,
   );
 
-  assert.equal(upstreamUrl.searchParams.get('q'), query);
+  const first = structuredClone(profile) as unknown as {
+    key: string;
+    operation: {
+      gatewayPath: string;
+      parameters: { path: Array<{ name: string }> };
+    };
+  };
+  first.key = 'GET /api/v4/conflict/{handle}';
+  first.operation.gatewayPath = '/solved/v4/conflict/{handle}';
+  const second = structuredClone(first);
+  second.key = 'GET /api/v4/conflict/{key}';
+  second.operation.gatewayPath = '/solved/v4/conflict/{key}';
+  const secondParameter = second.operation.parameters.path[0];
+  assert.ok(secondParameter);
+  secondParameter.name = 'key';
+  assert.throws(
+    () =>
+      compilePublicGetRouter([
+        first as unknown as PublicGetRoute,
+        second as unknown as PublicGetRoute,
+      ]),
+    /ambiguous parameter sibling/u,
+  );
 });
-
-for (const encodedSegment of ['%252Fetc', '%252e%252e', '%255cetc', '%25']) {
-  test(`rejects double-encoded path data: ${encodedSegment}`, () => {
-    assert.throws(
-      () =>
-        resolveProxyRequest(
-          gatewayUrl(`/solved/v4/users/${encodedSegment}`),
-        ),
-      (error: unknown) =>
-        error instanceof ContractError &&
-        error.status === 404 &&
-        error.code === 'not_found',
-    );
-  });
-}

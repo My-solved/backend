@@ -1,211 +1,207 @@
-export type QueryValidator = (value: string) => boolean;
+import { V4_OPERATION_MANIFEST } from './generated/v4-operations.js';
+import type {
+  V4OperationContract,
+  V4OperationParameter,
+} from './v4-operation-contract.js';
+import {
+  assertUriSchemaSupported,
+  validateUriValue,
+} from './uri-schema.js';
 
-export interface QueryParameterSpec {
+const PATH_PARAMETER = /^\{([A-Za-z][A-Za-z0-9]*)\}$/u;
+const EXPECTED_PUBLIC_GET_OPERATIONS = 53;
+
+export interface PublicGetRoute {
+  readonly key: string;
+  readonly operation: V4OperationContract;
+}
+
+export interface MatchedPublicGetRoute extends PublicGetRoute {
+  readonly pathValues: Readonly<Record<string, string>>;
+}
+
+interface ParameterEdge {
   readonly name: string;
-  readonly required?: boolean;
-  readonly defaultValue?: string;
-  readonly validate?: QueryValidator;
+  readonly parameter: V4OperationParameter;
+  readonly node: RouteNode;
 }
 
-export interface RouteSpec {
-  readonly upstreamPath: string;
-  readonly pathParameters: Readonly<Record<string, QueryValidator>>;
-  readonly query: readonly QueryParameterSpec[];
+interface RouteNode {
+  readonly literals: Map<string, RouteNode>;
+  parameter?: ParameterEdge;
+  route?: PublicGetRoute;
 }
 
-export interface ResolvedRouteSpec {
-  readonly upstreamPath: string;
-  readonly query: readonly QueryParameterSpec[];
+export interface PublicGetRouter {
+  readonly operationKeys: readonly string[];
+  readonly match: (
+    decodedPathSegments: readonly string[],
+  ) => MatchedPublicGetRoute | undefined;
 }
 
-const nonEmpty = (maximumLength: number): QueryValidator =>
-  (value) =>
-    value.length > 0 &&
-    value.length <= maximumLength &&
-    !/[\u0000-\u001f\u007f]/u.test(value);
+function createNode(): RouteNode {
+  return { literals: new Map<string, RouteNode>() };
+}
 
-const boundedText = (maximumLength: number): QueryValidator =>
-  (value) =>
-    value.length <= maximumLength && !/[\u0000-\u001f\u007f]/u.test(value);
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
 
-const oneOf = (values: readonly string[]): QueryValidator => {
-  const allowed = new Set(values);
-  return (value) => allowed.has(value);
-};
-
-const positiveInteger = (maximum?: number): QueryValidator =>
-  (value) => {
-    if (!/^[1-9]\d*$/u.test(value)) {
-      return false;
-    }
-    const parsed = Number(value);
-    return (
-      Number.isSafeInteger(parsed) &&
-      (maximum === undefined || parsed <= maximum)
-    );
-  };
-
-const positivePage = positiveInteger(10_000);
-const activityDay: QueryValidator = (value) => /^\d{4}-\d{2}-\d{2}$/u.test(value);
-
-const required = (
-  name: string,
-  validate: QueryValidator,
-): QueryParameterSpec => Object.freeze({ name, required: true, validate });
-
-const optional = (
-  name: string,
-  validate: QueryValidator,
-): QueryParameterSpec => Object.freeze({ name, validate });
-
-const defineRoute = (
-  upstreamPath: string,
-  query: readonly QueryParameterSpec[] = [],
-  pathParameters: Readonly<Record<string, QueryValidator>> = {},
-): RouteSpec =>
-  Object.freeze({
-    upstreamPath,
-    pathParameters: Object.freeze({ ...pathParameters }),
-    query: Object.freeze([...query]),
-  });
-
-const v4Handle = nonEmpty(64);
-const v4Key = nonEmpty(64);
-const schemaUnboundedText = boundedText(8_192);
-const shortLanguage = boundedText(16);
-
-export const ROUTES = Object.freeze({
-  '/solved/v4/users/{handle}': defineRoute(
-    'users/{handle}',
-    [optional('lang', schemaUnboundedText)],
-    { handle: v4Handle },
-  ),
-  '/solved/v4/users/{handle}/activity/days': defineRoute(
-    'users/{handle}/activity/days',
-    [required('from', activityDay), required('to', activityDay)],
-    { handle: v4Handle },
-  ),
-  '/solved/v4/users/{handle}/reputation': defineRoute(
-    'users/{handle}/reputation',
-    [optional('range', oneOf(['90d', '1y', 'all']))],
-    { handle: v4Handle },
-  ),
-  '/solved/v4/users/{handle}/contributions': defineRoute(
-    'users/{handle}/contributions',
-    [
-      optional('page', positivePage),
-      optional('limit', positiveInteger(20)),
-      optional('sort', oneOf(['recent', 'helpful'])),
-      optional('only', oneOf(['scoring', 'helpful', 'vouched'])),
-      optional('commented', oneOf(['true', 'false'])),
-    ],
-    { handle: v4Handle },
-  ),
-  '/solved/v4/problems': defineRoute('problems', [
-    optional('page', positiveInteger()),
-    // OpenAPI leaves q unbounded. The documented anonymous 100-character and
-    // eight-term policy returns a structured upstream 401, which the gateway
-    // must preserve instead of replacing with a local 400.
-    optional('q', schemaUnboundedText),
-    optional('sort', oneOf(['id', 'level', 'solved', 'average_try', 'random'])),
-    optional('direction', oneOf(['asc', 'desc'])),
-    optional('seed', nonEmpty(64)),
-  ]),
-  '/solved/v4/rankings/users/search': defineRoute(
-    'rankings/users/search',
-    [
-      required('q', boundedText(64)),
-      optional('sort', oneOf(['rating', 'solved', 'contribution'])),
-    ],
-  ),
-  '/solved/v4/tags': defineRoute('tags'),
-  '/solved/v4/tags/{key}': defineRoute('tags/{key}', [], {
-    key: v4Key,
-  }),
-  '/solved/v4/achievements/items/{kind}/{key}': defineRoute(
-    'achievements/items/{kind}/{key}',
-    [optional('lang', shortLanguage)],
-    { kind: oneOf(['badge', 'background']), key: v4Key },
-  ),
-} satisfies Readonly<Record<string, RouteSpec>>);
-
-export type GatewayRoute = keyof typeof ROUTES;
-
-function decodePathSegment(value: string): string | undefined {
-  try {
-    const decoded = decodeURIComponent(value);
+function publicGetEntries(): PublicGetRoute[] {
+  const entries: PublicGetRoute[] = [];
+  for (const [key, narrowOperation] of Object.entries(V4_OPERATION_MANIFEST)) {
+    const operation: V4OperationContract = narrowOperation;
     if (
-      decoded === '.' ||
-      decoded === '..' ||
-      decoded.includes('/') ||
-      decoded.includes('\\') ||
-      decoded.includes('%') ||
-      /[\u0000-\u001f\u007f]/u.test(decoded)
+      operation.method === 'GET' &&
+      operation.runtime.enabled &&
+      (operation.access.class === 'open' || operation.access.class === 'public')
     ) {
-      return undefined;
+      entries.push({ key, operation });
     }
-    return decoded;
-  } catch {
-    return undefined;
   }
+  entries.sort((left, right) => compareText(left.key, right.key));
+  if (entries.length !== EXPECTED_PUBLIC_GET_OPERATIONS) {
+    throw new Error('public/open GET operation count changed');
+  }
+  return entries;
 }
 
-function matchRoute(
-  gatewayPath: string,
-  route: RouteSpec,
-  pathname: string,
-): ResolvedRouteSpec | undefined {
-  const templateSegments = gatewayPath.split('/');
-  const pathSegments = pathname.split('/');
-  if (templateSegments.length !== pathSegments.length) {
-    return undefined;
+function parameterFor(
+  operation: V4OperationContract,
+  name: string,
+): V4OperationParameter {
+  const parameter = operation.parameters.path.find(
+    (candidate) => candidate.name === name,
+  );
+  if (parameter === undefined || !parameter.required) {
+    throw new Error('route template has an unsupported path parameter');
+  }
+  assertUriSchemaSupported(parameter.schema);
+  return parameter;
+}
+
+function sameParameter(
+  left: V4OperationParameter,
+  right: V4OperationParameter,
+): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function insertRoute(root: RouteNode, route: PublicGetRoute): void {
+  if (!route.operation.gatewayPath.startsWith('/solved/v4/')) {
+    throw new Error('gateway route escaped the solved v4 namespace');
+  }
+  const segments = route.operation.gatewayPath.split('/').slice(1);
+  if (segments.length === 0 || segments.some((segment) => segment.length === 0)) {
+    throw new Error('gateway route contains an empty segment');
   }
 
-  const values: Record<string, string> = {};
-  for (let index = 0; index < templateSegments.length; index += 1) {
-    const templateSegment = templateSegments[index];
-    const rawSegment = pathSegments[index];
-    if (templateSegment === undefined || rawSegment === undefined) {
-      return undefined;
-    }
-    const decoded = decodePathSegment(rawSegment);
-    if (decoded === undefined) {
-      return undefined;
-    }
-    const match = /^\{([A-Za-z][A-Za-z0-9]*)\}$/u.exec(templateSegment);
+  let node = root;
+  const usedParameters = new Set<string>();
+  for (const segment of segments) {
+    const match = PATH_PARAMETER.exec(segment);
     if (match === null) {
-      if (decoded !== templateSegment) {
-        return undefined;
+      let child = node.literals.get(segment);
+      if (child === undefined) {
+        child = createNode();
+        node.literals.set(segment, child);
       }
+      node = child;
       continue;
     }
+
     const name = match[1];
-    const validator = name === undefined ? undefined : route.pathParameters[name];
-    if (name === undefined || validator === undefined || !validator(decoded)) {
-      return undefined;
+    if (name === undefined || usedParameters.has(name)) {
+      throw new Error('gateway route contains an invalid path parameter');
     }
-    values[name] = decoded;
+    usedParameters.add(name);
+    const parameter = parameterFor(route.operation, name);
+    if (node.parameter === undefined) {
+      node.parameter = { name, parameter, node: createNode() };
+    } else if (
+      node.parameter.name !== name ||
+      !sameParameter(node.parameter.parameter, parameter)
+    ) {
+      throw new Error('gateway route has an ambiguous parameter sibling');
+    }
+    node = node.parameter.node;
   }
 
-  let upstreamPath = route.upstreamPath;
-  for (const [name, value] of Object.entries(values)) {
-    upstreamPath = upstreamPath.replace(`{${name}}`, encodeURIComponent(value));
+  if (usedParameters.size !== route.operation.parameters.path.length) {
+    throw new Error('gateway route path parameters do not match the template');
   }
-  if (upstreamPath.includes('{') || upstreamPath.includes('}')) {
+  if (node.route !== undefined) {
+    throw new Error('gateway route has a duplicate leaf');
+  }
+  node.route = route;
+}
+
+function matchNode(
+  node: RouteNode,
+  segments: readonly string[],
+  index: number,
+  values: Record<string, string>,
+): MatchedPublicGetRoute | undefined {
+  if (index === segments.length) {
+    return node.route === undefined
+      ? undefined
+      : Object.freeze({
+          ...node.route,
+          pathValues: Object.freeze({ ...values }),
+        });
+  }
+  const value = segments[index];
+  if (value === undefined) {
     return undefined;
   }
+
+  const literal = node.literals.get(value);
+  if (literal !== undefined) {
+    const matched = matchNode(literal, segments, index + 1, values);
+    if (matched !== undefined) {
+      return matched;
+    }
+  }
+
+  const parameter = node.parameter;
+  if (
+    parameter !== undefined &&
+    validateUriValue(value, parameter.parameter.schema)
+  ) {
+    values[parameter.name] = value;
+    const matched = matchNode(parameter.node, segments, index + 1, values);
+    delete values[parameter.name];
+    return matched;
+  }
+  return undefined;
+}
+
+export function compilePublicGetRouter(
+  routes: readonly PublicGetRoute[],
+): PublicGetRouter {
+  const root = createNode();
+  const operationKeys: string[] = [];
+  for (const route of routes) {
+    insertRoute(root, route);
+    operationKeys.push(route.key);
+    for (const parameter of route.operation.parameters.query) {
+      assertUriSchemaSupported(parameter.schema);
+    }
+  }
   return Object.freeze({
-    upstreamPath,
-    query: route.query,
+    operationKeys: Object.freeze(operationKeys),
+    match: (segments: readonly string[]) =>
+      matchNode(root, segments, 0, Object.create(null) as Record<string, string>),
   });
 }
 
-export function findRoute(pathname: string): ResolvedRouteSpec | undefined {
-  for (const [gatewayPath, route] of Object.entries(ROUTES)) {
-    const resolved = matchRoute(gatewayPath, route, pathname);
-    if (resolved !== undefined) {
-      return resolved;
-    }
-  }
-  return undefined;
+export const PUBLIC_GET_ROUTES = Object.freeze(publicGetEntries());
+const publicGetRouter = compilePublicGetRouter(PUBLIC_GET_ROUTES);
+
+export const PUBLIC_GET_OPERATION_KEYS = publicGetRouter.operationKeys;
+
+export function findRoute(
+  decodedPathSegments: readonly string[],
+): MatchedPublicGetRoute | undefined {
+  return publicGetRouter.match(decodedPathSegments);
 }
