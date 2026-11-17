@@ -65,16 +65,16 @@
     {
       "operation": "POST /api/v4/oauth/revoke",
       "expectRequestBody": "absent",
-      "runtimeEnabled": false,
-      "policy": "implementation-required",
+      "runtimeEnabled": true,
+      "policy": "supplemented",
       "supplement": "oauth-revoke",
       "reason": "The source names token only in prose and does not declare a request media type."
     },
     {
       "operation": "POST /api/v4/oauth/token",
       "expectRequestBody": "absent",
-      "runtimeEnabled": false,
-      "policy": "implementation-required",
+      "runtimeEnabled": true,
+      "policy": "supplemented",
       "supplement": "oauth-token",
       "reason": "The source describes form-or-JSON grant bodies in prose without a requestBody schema."
     }

@@ -18,7 +18,7 @@ const HTTP_METHOD_ORDER = Object.freeze([
 ] as const satisfies readonly V4HttpMethod[]);
 const EXPECTED_RUNTIME_METHOD_COUNTS = Object.freeze({
   GET: 71,
-  POST: 5,
+  POST: 7,
   PATCH: 3,
   DELETE: 2,
 } satisfies Readonly<Record<V4HttpMethod, number>>);
@@ -108,7 +108,7 @@ function runtimeEntries(): V4Route[] {
       throw new Error(`v4 ${method} operation count changed`);
     }
   }
-  if (entries.length !== 81) {
+  if (entries.length !== 83) {
     throw new Error('v4 runtime operation count changed');
   }
   return entries;

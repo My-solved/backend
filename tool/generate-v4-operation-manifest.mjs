@@ -760,8 +760,8 @@ export function validateGatewayOverrides(overrides, document, snapshotSha256) {
     );
     if (
       override.expectRequestBody !== 'absent' ||
-      override.runtimeEnabled !== false ||
-      override.policy !== 'implementation-required' ||
+      override.runtimeEnabled !== true ||
+      override.policy !== 'supplemented' ||
       override.supplement !== expected.supplement ||
       Object.hasOwn(operations.get(key).operation, 'requestBody')
     ) {
@@ -1183,22 +1183,23 @@ function normalizeResponses(
 }
 
 function runtimePolicy(operationOverride, requestSupplement) {
-  if (operationOverride?.policy === 'implementation-required') {
+  if (operationOverride?.policy === 'supplemented') {
     if (
+      operationOverride.runtimeEnabled !== true ||
       requestSupplement === undefined ||
       requestSupplement.requestBody.supplement !== operationOverride.supplement
     ) {
-      throw new Error('OAuth implementation boundary lacks its supplement');
+      throw new Error('OAuth runtime boundary lacks its supplement');
     }
     return {
-      enabled: false,
-      policy: 'implementation-required',
+      enabled: true,
+      policy: 'supplemented',
       supplement: operationOverride.supplement,
       requiredSecurity: requestSupplement.security,
     };
   }
   if (requestSupplement !== undefined) {
-    throw new Error('request supplement is not bound to a disabled runtime');
+    throw new Error('request supplement is not bound to a supplemented runtime');
   }
   return { enabled: true, policy: 'generated' };
 }

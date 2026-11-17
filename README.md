@@ -6,9 +6,10 @@ injects that app's credentials only for reviewed `/solved/v4/*` operations.
 
 The service has no database, cache, login flow, token persistence, BOJ
 credential, or runtime package dependency. Its current runtime surface is
-generated from the reviewed operation manifest and contains exactly 81 v4
-operations: all 71 `GET` operations plus the ten documented user mutations
-(`POST` 5, `PATCH` 3, `DELETE` 2). Fixed `/solved/v4/*` templates map only to
+generated from the reviewed operation manifest and contains all 83 v4
+operations: 71 `GET` operations, ten documented user mutations, and two
+app-authenticated OAuth operations (`POST` 7, `PATCH` 3, `DELETE` 2). Fixed
+`/solved/v4/*` templates map only to
 their corresponding `https://solved.ac/api/v4/*` templates, with app
 identifier and secret read from mounted configuration files.
 
@@ -20,9 +21,10 @@ scope behavior. Malformed or duplicate Authorization is rejected instead of
 downgrading to anonymous. Authorization on any other public operation is
 ignored, and caller `Cookie`, `x-client-id`, and `x-client-secret` values are
 never forwarded. The seven documented JSON mutations require a non-empty body,
-while the other three mutations reject one. App-access operations, OAuth,
-arbitrary upstream paths, unknown query parameters, and duplicate query
-parameters remain unreachable.
+while the other three user mutations reject one. OAuth rejects every caller
+Authorization header and authenticates only with the deployment's app
+credentials. Arbitrary upstream paths, unknown query parameters, and duplicate
+query parameters remain unreachable.
 
 Mutation bodies are capped at 64 KiB, decoded as fatal UTF-8, parsed with a
 depth limit and duplicate-key rejection, and validated against the normalized
@@ -31,10 +33,19 @@ gateway rejects undeclared media types, content encodings, ambiguous framing,
 and `Expect` handshakes; it never forwards caller framing headers or retries a
 mutation.
 
+`POST /solved/v4/oauth/token` accepts the reviewed authorization-code or
+refresh-token body as strict JSON or form data. `POST /solved/v4/oauth/revoke`
+accepts only strict form data containing `token`. Both share the 64 KiB cap,
+fatal UTF-8 and duplicate decoded-key checks, reject unknown or cross-variant
+fields, and become deterministic form bytes behind an opaque validated type
+before the single upstream POST.
+
 All 32 token-aware operation responses are forced to `Cache-Control: no-store`
 and have `ETag` removed, including anonymous calls to the four scoped-public
-operations. Browser access to those operations uses an exact configured origin
-allowlist; native/no-Origin requests remain available. Unscoped anonymous
+operations. The two OAuth routes additionally force `Pragma: no-cache` on
+success and failure. Browser access to all 34 protected routes uses an exact
+configured origin allowlist; OAuth preflight permits `Content-Type` but never
+Authorization. Native/no-Origin requests remain available. Unscoped anonymous
 public GETs retain wildcard CORS but never grant an Authorization preflight.
 
 URI values are decoded once, checked against the generated path/query schemas,
@@ -120,11 +131,11 @@ component-schema counts change. Review and update those invariants in
 committed snapshot preserves the source schemas and arrays as-is;
 canonicalization only orders JSON object keys and formatting.
 
-The application catalog compiles all 81 runtime-enabled operations into a
+The application catalog compiles all 83 runtime-enabled operations into a
 method-aware trie so same-path methods remain distinct and auditable. The HTTP
-gateway resolves those 71 reads and ten reviewed mutations; the two app/OAuth
-operations remain runtime-disabled. An operation does not become reachable
-merely by existing in the generated data or application catalog.
+gateway resolves 71 reads, ten generated user mutations, and two supplemented
+app/OAuth operations. The supplemented routes are enabled only while their
+reviewed sensitive transport policy remains exact.
 
 The current upstream document also has known gaps that must remain explicit in
 follow-up generation rather than being silently guessed: it declares no
@@ -198,21 +209,25 @@ authorization-code and refresh-token variants over the documented JSON or
 form media types; revoke has the documented `token` over the form media type
 required by its normative RFC 7009 reference. Opaque values have no invented
 field maximum; the runtime-wide body cap remains authoritative. Both operations
-stay runtime-disabled with `implementation-required` until their dedicated
-parser and sensitive transport path are reviewed.
+use the enabled `supplemented` policy with a dedicated strict parser, opaque
+canonical form type, and app-only outbound transport.
 
 The supplement also makes the activation boundary explicit: exact-origin
 browser CORS, `no-store` plus `Pragma: no-cache`, no ETag, one upstream attempt,
 server-owned app headers, and rejected caller Authorization. Defaults from
 OpenAPI are retained as `annotationDefault` metadata and are never injected
-into a request.
+into a request. Token exchange and revocation are never retried after a `429`,
+contract failure, network failure, or timeout. A refresh token is rotated and
+single-use: after a timeout the upstream processing state is ambiguous, so
+callers must reconcile their sign-in state or reauthenticate according to
+application policy instead of automatically resubmitting it.
 
 `src/domain/request-json-schema.ts` validates parsed JSON values against this
 normalized request grammar, including strict object keys and every array,
 scalar, nullability, enum, pattern, and bound constraint. It has no HTTP body
-parser or routing side effect; the inbound adapter activates only the ten
-reviewed user mutations and passes an opaque validated body to the outbound
-adapter.
+parser or routing side effect. The inbound adapter combines it with strict
+JSON/form parsers for the two supplemented OAuth routes and passes only opaque
+validated JSON or canonical form bodies to the outbound adapter.
 
 Regenerate or verify the manifest entirely from committed local files:
 
@@ -284,7 +299,7 @@ Configuration is intentionally small:
 | `REQUEST_TIMEOUT_MS` | `8000` | solved.ac request deadline |
 | `MAX_RESPONSE_BYTES` | `5242880` | Maximum upstream response size |
 | `MAX_CONCURRENT_REQUESTS` | `8` | Concurrent non-health request cap |
-| `SOLVED_PROTECTED_CORS_ORIGINS` | empty | Comma-separated exact browser origins allowed to call token-aware operations |
+| `SOLVED_PROTECTED_CORS_ORIGINS` | empty | Comma-separated exact browser origins allowed to call token-aware and OAuth operations |
 | `SOLVED_CLIENT_ID_FILE` | required | File containing the solved.ac app client ID |
 | `SOLVED_CLIENT_SECRET_FILE` | required | File containing the solved.ac app client secret |
 
@@ -299,8 +314,8 @@ Docker image, build argument, Compose environment value, or repository file.
 
 `SOLVED_PROTECTED_CORS_ORIGINS` accepts at most 32 canonical `http://` or
 `https://` origins with no path, query, fragment, wildcard, credentials, or
-`null` origin. An empty value closes token-aware browser CORS while native
-clients that send no Origin continue to work. Use HTTPS origins outside local
+`null` origin. An empty value closes protected browser CORS while native clients
+that send no Origin continue to work. Use HTTPS origins outside local
 development. This setting controls browser response access only; it is not
 authentication, authorization, or a substitute for edge rate limits.
 

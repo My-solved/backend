@@ -16,6 +16,22 @@ const generatedRuntimePolicy = {
 } satisfies V4RuntimePolicy;
 void generatedRuntimePolicy;
 
+const supplementedRuntimePolicy = {
+  enabled: true,
+  policy: 'supplemented',
+  supplement: 'oauth-token',
+  requiredSecurity: {
+    appAuthentication: 'server-owned-x-client-headers',
+    browserCors: 'exact-origin',
+    callerAuthorization: 'reject',
+    forwardEtag: false,
+    responseCache: 'no-store',
+    responsePragma: 'no-cache',
+    upstreamAttempts: 1,
+  },
+} satisfies V4RuntimePolicy;
+void supplementedRuntimePolicy;
+
 const invalidRuntimePolicy: V4RuntimePolicy = {
   enabled: true,
   policy: 'generated',
@@ -23,6 +39,22 @@ const invalidRuntimePolicy: V4RuntimePolicy = {
   supplement: 'oauth-token',
 };
 void invalidRuntimePolicy;
+
+// @ts-expect-error Supplemented operations require their exact security policy.
+const missingSupplementSecurity: V4RuntimePolicy = {
+  enabled: true,
+  policy: 'supplemented',
+  supplement: 'oauth-token',
+};
+void missingSupplementSecurity;
+
+// @ts-expect-error Generated operations cannot carry supplement security.
+const generatedWithSecurity: V4RuntimePolicy = {
+  enabled: true,
+  policy: 'generated',
+  requiredSecurity: supplementedRuntimePolicy.requiredSecurity,
+};
+void generatedWithSecurity;
 
 test('generated operation manifest covers the complete stable catalog', () => {
   const entries = Object.entries(V4_OPERATION_MANIFEST);
@@ -159,8 +191,9 @@ test('reviewed gateway policies stay explicit in generated data', () => {
       operation.requestBody?.canonicalMediaType,
       'application/x-www-form-urlencoded',
     );
-    assert.equal(operation.runtime.enabled, false);
-    assert.equal(operation.runtime.policy, 'implementation-required');
+    assert.equal(operation.runtime.enabled, true);
+    assert.equal(operation.runtime.policy, 'supplemented');
+    assert.equal(operation.runtime.supplement, operation.requestBody?.supplement);
     assert.deepEqual(operation.runtime.requiredSecurity, {
       appAuthentication: 'server-owned-x-client-headers',
       browserCors: 'exact-origin',
@@ -173,6 +206,16 @@ test('reviewed gateway policies stay explicit in generated data', () => {
   }
   assert.equal(
     entries.filter((operation) => !operation.runtime.enabled).length,
+    0,
+  );
+  assert.equal(
+    entries.filter((operation) => operation.runtime.policy === 'generated')
+      .length,
+    81,
+  );
+  assert.equal(
+    entries.filter((operation) => operation.runtime.policy === 'supplemented')
+      .length,
     2,
   );
   assert.equal(

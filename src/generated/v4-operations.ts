@@ -5966,8 +5966,8 @@ export const V4_OPERATION_MANIFEST = {
       }
     },
     "runtime": {
-      "enabled": false,
-      "policy": "implementation-required",
+      "enabled": true,
+      "policy": "supplemented",
       "requiredSecurity": {
         "appAuthentication": "server-owned-x-client-headers",
         "browserCors": "exact-origin",
@@ -6108,8 +6108,8 @@ export const V4_OPERATION_MANIFEST = {
       }
     },
     "runtime": {
-      "enabled": false,
-      "policy": "implementation-required",
+      "enabled": true,
+      "policy": "supplemented",
       "requiredSecurity": {
         "appAuthentication": "server-owned-x-client-headers",
         "browserCors": "exact-origin",

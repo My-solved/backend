@@ -171,6 +171,27 @@ test('reviewed overrides reject stale, duplicate, and unknown targets', async ()
     () => validateGatewayOverrides(unknownField, document, snapshotSha256),
     /unexpected fields/u,
   );
+
+  for (const mutate of [
+    (candidate) => { candidate.operationOverrides[1].runtimeEnabled = false; },
+    (candidate) => {
+      candidate.operationOverrides[1].policy = 'implementation-required';
+    },
+    (candidate) => {
+      candidate.operationOverrides[1].supplement = 'oauth-token';
+    },
+  ]) {
+    const changedRuntime = structuredClone(overrides);
+    mutate(changedRuntime);
+    assert.throws(
+      () => validateGatewayOverrides(
+        changedRuntime,
+        document,
+        snapshotSha256,
+      ),
+      /OAuth supplement boundary changed/u,
+    );
+  }
 });
 
 test('OAuth request supplements are snapshot and source-description bound', async () => {

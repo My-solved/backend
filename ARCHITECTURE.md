@@ -33,7 +33,7 @@ the reviewed solved.ac adapter. This is the single documented adapter-to-adapter
 orchestration point. It can be split into a separate use-case layer if runtime
 flows become substantially more complex.
 
-The mutation boundary is split by responsibility:
+The non-GET boundary is split by responsibility:
 
 - `application/v4-router.ts` performs literal-first, method-aware dispatch and
   reports the exact methods at a path.
@@ -43,26 +43,39 @@ The mutation boundary is split by responsibility:
   at most 65,536 bytes while a concurrency slot is held.
 - `adapters/http/strict-json-body.ts` applies fatal UTF-8, JSON grammar,
   nesting, and decoded duplicate-key checks.
+- `adapters/http/strict-form-body.ts` applies fatal UTF-8 and percent decoding,
+  plus-space semantics, mandatory `=`, and decoded duplicate-key rejection.
+- `adapters/http/oauth-request-body.ts` selects only supplement-declared media,
+  validates the exclusive OAuth variant, and converts either input format to
+  the opaque canonical form boundary.
 - `domain/request-json-schema.ts` validates the parsed value, after which
-  `domain/validated-json-request-body.ts` creates an opaque canonical payload.
-- `adapters/solved/solved-client.ts` accepts a discriminated GET/mutation
-  policy. Its types and runtime checks prevent cacheable authorization, GET
-  bodies, unauthenticated mutations, and the wrong PATCH/DELETE body mode.
+  `domain/validated-json-request-body.ts` or
+  `domain/validated-form-request-body.ts` creates an opaque canonical payload.
+- `adapters/http/v4-route-policy.ts` separates exact-origin sensitivity from
+  the per-method Authorization and Content-Type preflight permissions.
+- `adapters/solved/solved-client.ts` accepts a discriminated GET, user mutation,
+  or app-OAuth policy. Its types and runtime checks prevent cacheable
+  authorization, GET bodies, unauthenticated user mutations, caller Bearer on
+  OAuth, and the wrong body mode.
 
 ## Request lifecycle
 
-For a mutation, the gateway resolves the fixed target, literal path, exact
-method, CORS policy, query contract, Bearer value, and server credentials before
-reading a body. It then acquires one of the bounded request slots, streams and
+For a non-GET request, the gateway resolves the fixed target, literal path,
+exact method, CORS policy, query contract, route-specific authorization rule,
+and server credentials before reading a body. User mutations require one
+Bearer value; supplemented OAuth routes reject every caller Authorization
+header. The gateway then acquires one of the bounded request slots, streams and
 validates the payload, and performs exactly one redirect-disabled upstream
 fetch. Early rejection of a framed unread body closes the connection. Node
 `Expect` events are rejected with `417` at the composition boundary so Node
 cannot automatically send `100 Continue` before these checks.
 
-Bodyless and JSON operations remain distinct through the entire flow. Only the
-seven reviewed JSON mutations add an upstream `Content-Type`; caller framing,
-cookies, and app credentials never cross the adapter boundary. Every mutation
-response is token-aware and therefore strips ETag and forces `no-store`.
+Bodyless, JSON, and supplemented OAuth operations remain distinct through the
+entire flow. The seven reviewed JSON mutations send canonical JSON; OAuth JSON
+or form input always sends deterministic form data. Caller framing, cookies,
+and app credentials never cross the adapter boundary. User mutation responses
+strip ETag and force `no-store`; OAuth does the same and also forces `Pragma:
+no-cache` on every success and failure path.
 
 The source-layout test enforces the root shape and the lower-layer dependency
 direction. Keep tests flat under `test/` so Node's test command remains simple;
@@ -74,9 +87,10 @@ Files under `src/generated/` are never edited directly. The OpenAPI snapshot,
 wire declarations, snapshot-bound gateway request supplement, and operation
 manifest remain deterministic inputs to the application router and pure domain
 request-schema validator. The OAuth supplement is provenance-separated from
-the official wire declarations and does not activate its two routes; their
-runtime policy keeps the exact sensitive-security requirements attached while
-implementation is still required. Cataloging a method is distinct from
-exposing it through the inbound HTTP adapter. See the update and verification
-commands in
+the official wire declarations, which continue to expose `RequestBody = never`
+for these prose-only inputs. Its two operations use the enabled `supplemented`
+runtime policy, and generation fails closed unless the exact sensitive security
+requirements remain attached. The method-aware runtime catalog exposes all 83
+reviewed operations while still refusing arbitrary upstream targets. See the
+update and verification commands in
 [`README.md`](README.md).

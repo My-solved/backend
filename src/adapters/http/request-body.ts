@@ -104,6 +104,12 @@ export function isStrictJsonContentType(value: string): boolean {
   );
 }
 
+export function isStrictFormContentType(value: string): boolean {
+  return /^application\/x-www-form-urlencoded(?:[\t ]*;[\t ]*charset[\t ]*=[\t ]*utf-8)?$/i.test(
+    trimOws(value),
+  );
+}
+
 export type IncomingBodyResult =
   | { readonly kind: 'ok'; readonly body: Uint8Array }
   | { readonly kind: 'too-large' }
