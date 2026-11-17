@@ -67,9 +67,9 @@ test('snapshot and manifest are canonical and checksum-pinned', async () => {
   assert.deepEqual(manifest, {
     snapshotBytes: snapshotBytes.byteLength,
     snapshotSha256: checksum,
-    sourceBytes: 177_369,
+    sourceBytes: 177_480,
     sourceSha256:
-      '052ab72f544140447778df687463ea5fdfe9cbd24dbefa1b1ff4793f6adbaf0a',
+      'e92a7d51ef08c604d04570e9d9c95a44300d979bac830a6d54554adac23047dc',
     sourceUrl: 'https://backstage.solved.ac/api/v4/openapi',
   });
   assert.equal(snapshotBytes.toString('utf8'), canonicalJson(document));

@@ -1,12 +1,12 @@
 /**
  * Generated from the official solved.ac v4 OpenAPI snapshot plus the
  * snapshot-bound reviewed gateway request supplement.
- * Snapshot SHA-256: 312abfb4677fc67d914f6a357ff5b89d170eb65791ecb5d3ab30ab873352125d
+ * Snapshot SHA-256: 98177dc4232bcd2f59a284235126b22a4881e9772d3501dd8539cc665b6bbdc1
  * Do not edit directly; run npm run openapi:operations:update.
  */
 import type { V4OperationManifest } from '../domain/v4-operation-contract.js';
 
-export const V4_OPERATION_SNAPSHOT_SHA256 = "312abfb4677fc67d914f6a357ff5b89d170eb65791ecb5d3ab30ab873352125d" as const;
+export const V4_OPERATION_SNAPSHOT_SHA256 = "98177dc4232bcd2f59a284235126b22a4881e9772d3501dd8539cc665b6bbdc1" as const;
 
 export const V4_OPERATION_MANIFEST = {
   "DELETE /api/v4/account/bookmark-favorites/{handle}/{slug}": {

@@ -33,7 +33,7 @@ export const OPERATION_MANIFEST_PATH = join(
 
 const supportedMethods = Object.freeze(['get', 'post', 'patch', 'delete']);
 const expectedSnapshotSha256 =
-  '312abfb4677fc67d914f6a357ff5b89d170eb65791ecb5d3ab30ab873352125d';
+  '98177dc4232bcd2f59a284235126b22a4881e9772d3501dd8539cc665b6bbdc1';
 const expectedOperationCount = 83;
 const expectedPublicOpenGetCount = 53;
 const expectedBearerPolicyCounts = Object.freeze({
