@@ -1,8 +1,8 @@
 # solved-proxy
 
 `solved-proxy` is a small, stateless gateway between My.solved and the solved.ac
-API. It keeps the legacy `/solved/*` v3 compatibility surface during migration
-and exposes an explicit `/solved/v4/*` allowlist for the official v4 API.
+API. It supports the current `/solved/*` v3 client surface and exposes an
+explicit `/solved/v4/*` allowlist for the official v4 API.
 
 The service has no database, cache, login flow, user access token, BOJ
 credential, or runtime package dependency. It accepts only allowlisted public
@@ -43,10 +43,7 @@ Official v4 routes:
 Arbitrary upstream paths and query parameters are rejected. Request credentials
 and cookies are never forwarded upstream. In particular, caller
 `Authorization`, `Cookie`, `x-client-id`, and `x-client-secret` values are
-ignored. `/healthz` is the health endpoint;
-`/api` is retained only as a temporary direct-container compatibility response.
-It does not replace CodePoker's external `/api` monitor unless explicitly
-routed to this container.
+ignored. `/healthz` is the only health endpoint.
 
 ## Develop
 
@@ -101,24 +98,11 @@ as the unprivileged `node` user. Compose additionally enables a read-only root
 filesystem, drops Linux capabilities, and publishes the port only on loopback.
 No secret or `.env` file is copied into the image.
 
-## Migrate from CodePoker
+## Deploy behind a reverse proxy
 
-Keep the existing CodePoker deployment unchanged while introducing this service:
-
-1. Start `solved-proxy` on a temporary host or loopback port.
-2. Mount the solved.ac app credentials and check `/healthz`, a representative
-   v3 request, and `/solved/v4/users/<handle>`.
-3. Change only the reverse-proxy rule for `/solved/` to this container.
-4. Add a distinct external health route or monitor a representative gateway
-   request; the legacy `/api` check still measures CodePoker when only
-   `/solved/` is switched.
-5. Observe error rate, latency, `429` responses, and container restarts.
-6. Roll back by restoring the single `/solved/` reverse-proxy rule if needed.
-7. Remove the old CodePoker solved module only after the observation period.
-
-The v3 URLs remain available during the client rollout. New application builds
-use `/solved/v4/*`; CodePoker's `/api`, SSU, poker, user, and database features
-remain on the legacy backend during the migration.
+The v3 URLs remain available while My.solved moves its production runtime to
+the official v4 contract. The service itself has no dependency on another
+application backend.
 
 Example Nginx location when the container is published on loopback port 3000:
 
@@ -135,11 +119,9 @@ location = /solved-healthz {
 }
 ```
 
-Point the gateway monitor at `/solved-healthz`. Keep the existing `/api`
-monitor for the legacy CodePoker service until that service is retired.
-Apply request-rate and connection limits at the public reverse proxy as well;
-the application cap protects upstream work but is not a replacement for edge
-abuse controls.
+Point the gateway monitor at `/solved-healthz`. Apply request-rate and
+connection limits at the public reverse proxy as well; the application cap
+protects upstream work but is not a replacement for edge abuse controls.
 
 ## Deployment policy
 

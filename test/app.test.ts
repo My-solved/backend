@@ -59,7 +59,7 @@ function incomingRequest(
 const asServerResponse = (response: FakeServerResponse): ServerResponse =>
   response as unknown as ServerResponse;
 
-test('health endpoints never call upstream', async () => {
+test('health endpoint never calls upstream', async () => {
   let calls = 0;
   const fetchMock: typeof fetch = async () => {
     calls += 1;
@@ -70,20 +70,17 @@ test('health endpoints never call upstream', async () => {
     { method: 'GET', url: '/healthz' },
     { fetch: fetchMock },
   );
-  const compatibility = await handleGatewayRequest(
-    { method: 'GET', url: '/api' },
-    { fetch: fetchMock },
-  );
-
   assert.equal(health.status, 200);
   assert.deepEqual(JSON.parse(text(health.body)), { status: 'ok' });
   assert.equal(health.headers['cache-control'], 'no-store');
-  assert.equal(compatibility.status, 200);
-  assert.deepEqual(JSON.parse(text(compatibility.body)), {
-    service: 'solved-proxy',
-    status: 'ok',
-  });
   assert.equal(calls, 0);
+});
+
+test('does not expose an unrelated compatibility health route', async () => {
+  const result = await handleGatewayRequest({ method: 'GET', url: '/api' });
+
+  assert.equal(result.status, 404);
+  assert.deepEqual(JSON.parse(text(result.body)), { error: 'not_found' });
 });
 
 test('returns public CORS preflight without calling upstream', async () => {
