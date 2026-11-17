@@ -98,6 +98,38 @@ as the unprivileged `node` user. Compose additionally enables a read-only root
 filesystem, drops Linux capabilities, and publishes the port only on loopback.
 No secret or `.env` file is copied into the image.
 
+### Pull a published image
+
+Successful pushes to `main` publish the Linux AMD64 image
+`ghcr.io/my-solved/solved-proxy` to GitHub Container Registry. The workflow
+creates these tags:
+
+- `latest` and `main` for the latest successful `main` build
+- `sha-<short-commit>` for a commit-traceable build
+
+Container tags are mutable. For production, use the exact
+`ghcr.io/my-solved/solved-proxy@sha256:<digest>` value recorded in the successful
+workflow summary. This keeps a redeploy on the same published image even if a
+tag moves later. Pull and run it with the existing hardened Compose
+configuration:
+
+```sh
+SOLVED_PROXY_IMAGE=ghcr.io/my-solved/solved-proxy@sha256:<digest> \
+SOLVED_CLIENT_ID_FILE=/absolute/host/path/client-id \
+SOLVED_CLIENT_SECRET_FILE=/absolute/host/path/client-secret \
+  docker compose pull solved-proxy
+
+SOLVED_PROXY_IMAGE=ghcr.io/my-solved/solved-proxy@sha256:<digest> \
+SOLVED_CLIENT_ID_FILE=/absolute/host/path/client-id \
+SOLVED_CLIENT_SECRET_FILE=/absolute/host/path/client-secret \
+  docker compose up --no-build --detach solved-proxy
+```
+
+New GHCR packages are private by default. Before pulling, either make the
+package public or log in to `ghcr.io` with an account and token that have read
+access. The solved.ac client credentials remain runtime-only host files; they
+are not GitHub Actions secrets and are never included in the published image.
+
 ## Deploy behind a reverse proxy
 
 The v3 URLs remain available while My.solved moves its production runtime to
@@ -125,7 +157,11 @@ protects upstream work but is not a replacement for edge abuse controls.
 
 ## Deployment policy
 
-CI builds and tests the service and its image. It deliberately does not publish
-or deploy from pull requests. Add image publication and production deployment as
-separate protected workflows after the destination registry, host, and approval
-policy are decided.
+CI builds and tests the service and its image. The publication workflow runs
+only for pushes to protected `main`, authenticates to GHCR with the
+repository-scoped `GITHUB_TOKEN`, and has only `contents: read` and
+`packages: write` permissions. Pull requests and unprotected tags never publish
+images.
+
+Image publication does not deploy to a host. Keep production deployment and
+its runtime credential files behind a separate protected approval process.

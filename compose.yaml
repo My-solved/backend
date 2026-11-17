@@ -2,7 +2,7 @@ services:
   solved-proxy:
     build:
       context: .
-    image: solved-proxy:local
+    image: "${SOLVED_PROXY_IMAGE:-solved-proxy:local}"
     init: true
     restart: unless-stopped
     cpus: 1.0
