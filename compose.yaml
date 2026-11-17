@@ -15,6 +15,11 @@ services:
       REQUEST_TIMEOUT_MS: 8000
       MAX_RESPONSE_BYTES: 5242880
       MAX_CONCURRENT_REQUESTS: 8
+      SOLVED_CLIENT_ID_FILE: /run/secrets/solved_client_id
+      SOLVED_CLIENT_SECRET_FILE: /run/secrets/solved_client_secret
+    secrets:
+      - solved_client_id
+      - solved_client_secret
     ports:
       - "127.0.0.1:${SOLVED_PROXY_PORT:-3000}:3000"
     read_only: true
@@ -36,3 +41,9 @@ services:
       timeout: 3s
       start_period: 5s
       retries: 3
+
+secrets:
+  solved_client_id:
+    file: ${SOLVED_CLIENT_ID_FILE:?Set SOLVED_CLIENT_ID_FILE to an absolute host file path}
+  solved_client_secret:
+    file: ${SOLVED_CLIENT_SECRET_FILE:?Set SOLVED_CLIENT_SECRET_FILE to an absolute host file path}

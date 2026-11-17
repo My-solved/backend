@@ -3,7 +3,8 @@ import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http
 import {
   ContractError,
   resolveProxyRequest,
-  SOLVED_API_BASE_URL,
+  SOLVED_API_BASE_URLS,
+  type SolvedApiBaseUrls,
 } from './contract.js';
 import {
   proxyRequest,
@@ -34,8 +35,8 @@ export interface GatewayResponse {
 }
 
 export interface GatewayDependencies extends ProxyDependencies {
-  /** Test-only override. Production always uses the fixed solved.ac v3 base URL. */
-  readonly upstreamBaseUrl?: string | URL;
+  /** Test-only override. Production always uses the fixed solved.ac API bases. */
+  readonly upstreamBaseUrls?: SolvedApiBaseUrls;
 }
 
 export interface RequestHandlerOptions extends GatewayDependencies {
@@ -186,11 +187,27 @@ export async function handleGatewayRequest(
   }
 
   try {
-    const { upstreamUrl } = resolveProxyRequest(
+    const { upstreamUrl, apiVersion } = resolveProxyRequest(
       requestUrl,
-      dependencies.upstreamBaseUrl ?? SOLVED_API_BASE_URL,
+      dependencies.upstreamBaseUrls ?? SOLVED_API_BASE_URLS,
     );
-    const upstreamResponse = await proxyRequest(upstreamUrl, dependencies);
+    const {
+      upstreamBaseUrls: _upstreamBaseUrls,
+      credentials,
+      ...proxyDependencies
+    } = dependencies;
+    let upstreamResponse;
+    if (apiVersion === 'v4') {
+      if (credentials === undefined) {
+        return errorResponse(503, 'service_unavailable');
+      }
+      upstreamResponse = await proxyRequest(upstreamUrl, {
+        ...proxyDependencies,
+        credentials,
+      });
+    } else {
+      upstreamResponse = await proxyRequest(upstreamUrl, proxyDependencies);
+    }
     return response(
       upstreamResponse.status,
       upstreamResponse.body,

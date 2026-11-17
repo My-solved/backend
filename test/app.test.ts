@@ -10,7 +10,7 @@ const text = (body: Uint8Array): string => new TextDecoder().decode(body);
 class FakeServerResponse extends EventEmitter {
   status: number | undefined;
   headers: Readonly<Record<string, string>> | undefined;
-  body = new Uint8Array();
+  body: Uint8Array = new Uint8Array();
   destroyed = false;
   writableEnded = false;
   writableFinished = false;
@@ -227,6 +227,78 @@ test('forwards a valid request without any caller header input', async () => {
   );
   assert.deepEqual(observedHeaders, { accept: 'application/json' });
   assert.equal(text(result.body), '{"handle":"tourist"}');
+});
+
+test('requires server credentials before making a v4 request', async () => {
+  let calls = 0;
+  const result = await handleGatewayRequest(
+    { method: 'GET', url: '/solved/v4/users/tourist' },
+    {
+      fetch: async () => {
+        calls += 1;
+        return new Response('{}');
+      },
+    },
+  );
+
+  assert.equal(result.status, 503);
+  assert.deepEqual(JSON.parse(text(result.body)), {
+    error: 'service_unavailable',
+  });
+  assert.equal(calls, 0);
+});
+
+test('does not send v4 app credentials to the legacy v3 API', async () => {
+  let observedHeaders: RequestInit['headers'] | undefined;
+  const result = await handleGatewayRequest(
+    { method: 'GET', url: '/solved/site/stats' },
+    {
+      credentials: {
+        clientId: 'trusted-client-id',
+        clientSecret: 'trusted-client-secret',
+      },
+      fetch: async (_input, init) => {
+        observedHeaders = init?.headers;
+        return new Response('{}');
+      },
+    },
+  );
+
+  assert.equal(result.status, 200);
+  assert.deepEqual(observedHeaders, { accept: 'application/json' });
+});
+
+test('uses only server credentials for v4 even when the caller sends headers', async () => {
+  let observedHeaders: RequestInit['headers'] | undefined;
+  const handler = createRequestHandler({
+    credentials: {
+      clientId: 'trusted-client-id',
+      clientSecret: 'trusted-client-secret',
+    },
+    fetch: async (_input, init) => {
+      observedHeaders = init?.headers;
+      return new Response('{}');
+    },
+  });
+  const response = new FakeServerResponse();
+  const finished = once(response, 'finish');
+  handler(
+    incomingRequest('/solved/v4/users/tourist', {
+      authorization: 'Bearer caller-token',
+      cookie: 'session=caller-cookie',
+      'x-client-id': 'caller-client-id',
+      'x-client-secret': 'caller-client-secret',
+    }),
+    asServerResponse(response),
+  );
+  await finished;
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(observedHeaders, {
+    accept: 'application/json',
+    'x-client-id': 'trusted-client-id',
+    'x-client-secret': 'trusted-client-secret',
+  });
 });
 
 test('rejects request bodies before calling upstream', () => {

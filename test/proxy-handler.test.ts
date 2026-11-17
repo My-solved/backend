@@ -5,6 +5,7 @@ import test from 'node:test';
 import { proxyRequest, UpstreamError } from '../src/proxy-handler.js';
 
 const upstreamUrl = new URL('https://solved.ac/api/v3/site/stats');
+const v4UpstreamUrl = new URL('https://solved.ac/api/v4/users/tourist');
 
 test('uses a fixed GET request without forwarding caller credentials', async () => {
   let capturedInput: URL | Request | string | undefined;
@@ -28,6 +29,31 @@ test('uses a fixed GET request without forwarding caller credentials', async () 
   assert.equal(new Headers(capturedInit?.headers).has('cookie'), false);
 });
 
+test('injects only server-owned solved.ac credentials for v4', async () => {
+  let capturedInit: RequestInit | undefined;
+  const fetchMock: typeof fetch = async (_input, init) => {
+    capturedInit = init;
+    return new Response('{}');
+  };
+
+  await proxyRequest(v4UpstreamUrl, {
+    fetch: fetchMock,
+    credentials: {
+      clientId: 'server-client-id',
+      clientSecret: 'server-client-secret',
+    },
+  });
+
+  assert.deepEqual(capturedInit?.headers, {
+    accept: 'application/json',
+    'x-client-id': 'server-client-id',
+    'x-client-secret': 'server-client-secret',
+  });
+  const headers = new Headers(capturedInit?.headers);
+  assert.equal(headers.has('authorization'), false);
+  assert.equal(headers.has('cookie'), false);
+});
+
 test('preserves upstream status, bytes, and only safe response headers', async () => {
   const body = new Uint8Array([0, 1, 127, 128, 255]);
   const fetchMock: typeof fetch = async () =>
@@ -38,6 +64,8 @@ test('preserves upstream status, bytes, and only safe response headers', async (
         'retry-after': '30',
         'cache-control': 'public, max-age=10',
         etag: '"abc"',
+        'x-ratelimit-limit': '300',
+        'x-ratelimit-remaining': '299',
         'set-cookie': 'session=secret',
         location: 'https://evil.invalid/',
         'x-upstream-internal': 'hidden',
@@ -53,6 +81,8 @@ test('preserves upstream status, bytes, and only safe response headers', async (
     'retry-after': '30',
     'cache-control': 'public, max-age=10',
     etag: '"abc"',
+    'x-ratelimit-limit': '300',
+    'x-ratelimit-remaining': '299',
   });
 });
 
