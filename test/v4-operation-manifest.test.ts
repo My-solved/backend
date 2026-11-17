@@ -8,7 +8,7 @@ import {
 import type {
   V4ResponseContract,
   V4RuntimePolicy,
-} from '../src/v4-operation-contract.js';
+} from '../src/domain/v4-operation-contract.js';
 
 const generatedRuntimePolicy = {
   enabled: true,

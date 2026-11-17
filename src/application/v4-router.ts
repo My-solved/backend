@@ -1,12 +1,12 @@
-import { V4_OPERATION_MANIFEST } from './generated/v4-operations.js';
+import { V4_OPERATION_MANIFEST } from '../generated/v4-operations.js';
 import type {
   V4OperationContract,
   V4OperationParameter,
-} from './v4-operation-contract.js';
+} from '../domain/v4-operation-contract.js';
 import {
   assertUriSchemaSupported,
   validateUriValue,
-} from './uri-schema.js';
+} from '../domain/uri-schema.js';
 
 const PATH_PARAMETER = /^\{([A-Za-z][A-Za-z0-9]*)\}$/u;
 const EXPECTED_GET_OPERATIONS = 71;

@@ -1,9 +1,9 @@
 import {
   bearerAuthorizationHeader,
   type BearerAuthorization,
-} from './authorization.js';
-import type { SolvedClientCredentials } from './config.js';
-import type { V4ResponseContract } from './v4-operation-contract.js';
+} from '../../domain/bearer-authorization.js';
+import type { SolvedClientCredentials } from '../../domain/solved-client-credentials.js';
+import type { V4ResponseContract } from '../../domain/v4-operation-contract.js';
 
 export const DEFAULT_UPSTREAM_TIMEOUT_MS = 8_000;
 export const DEFAULT_MAX_RESPONSE_BYTES = 5 * 1_024 * 1_024;

@@ -1,13 +1,10 @@
 import { readFileSync, statSync } from 'node:fs';
 
+import type { SolvedClientCredentials } from '../domain/solved-client-credentials.js';
+
 const MAX_CREDENTIAL_BYTES = 4_096;
 const MAX_CORS_ORIGINS_BYTES = 8_192;
 const MAX_CORS_ORIGINS = 32;
-
-export interface SolvedClientCredentials {
-  readonly clientId: string;
-  readonly clientSecret: string;
-}
 
 export class ConfigurationError extends Error {
   constructor(message: string) {

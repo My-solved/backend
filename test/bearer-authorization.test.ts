@@ -1,10 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  bearerAuthorizationHeader,
-  parseBearerAuthorization,
-} from '../src/authorization.js';
+import { parseBearerAuthorization } from '../src/adapters/http/bearer-authorization.js';
+import { bearerAuthorizationHeader } from '../src/domain/bearer-authorization.js';
 
 test('parses one bounded RFC 6750 Bearer value and normalizes the scheme', () => {
   for (const value of [

@@ -62,6 +62,16 @@ The build emits JavaScript to `dist/`. Tests use Node's built-in test runner and
 stub upstream `fetch`; they need no external network access. The load-tool test
 binds only an ephemeral loopback port.
 
+## Source architecture
+
+Runtime code is grouped into `domain`, `application`, inbound/outbound
+`adapters`, and `infrastructure` layers; `src/server.ts` is the only root
+TypeScript file and acts as the composition root. Generated OpenAPI artifacts
+remain isolated under `src/generated`. The dependency direction and the one
+documented gateway orchestration boundary are described in
+[`ARCHITECTURE.md`](ARCHITECTURE.md) and enforced by an offline source-layout
+test.
+
 ## Official OpenAPI contract
 
 The complete machine-readable solved.ac v4 contract is pinned at

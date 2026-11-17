@@ -1,23 +1,21 @@
 import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http';
 
-import {
-  parseBearerAuthorization,
-  type BearerAuthorization,
-} from './authorization.js';
+import type { BearerAuthorization } from '../../domain/bearer-authorization.js';
+import { parseBearerAuthorization } from './bearer-authorization.js';
 import {
   ContractError,
   resolveProxyRequest,
   SOLVED_API_BASE_URL,
-} from './contract.js';
+} from '../../application/v4-request-contract.js';
 import { corsDecision } from './cors-policy.js';
 import {
   proxyRequest,
   type ProxyDependencies,
   type ProxyRequestPolicy,
   UpstreamError,
-} from './proxy-handler.js';
+} from '../solved/solved-client.js';
 import { parseRequestTarget } from './request-target.js';
-import { findRoute } from './routes.js';
+import { findRoute } from '../../application/v4-router.js';
 
 export const DEFAULT_MAX_CONCURRENT_REQUESTS = 8;
 

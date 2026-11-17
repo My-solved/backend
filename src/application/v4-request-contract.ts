@@ -1,7 +1,7 @@
-import type { ParsedRequestTarget } from './request-target.js';
-import { findRoute } from './routes.js';
-import type { V4ResponseContract } from './v4-operation-contract.js';
-import { validateUriValue } from './uri-schema.js';
+import type { V4ResponseContract } from '../domain/v4-operation-contract.js';
+import { validateUriValue } from '../domain/uri-schema.js';
+import type { ParsedRequestTarget } from './parsed-request-target.js';
+import { findRoute } from './v4-router.js';
 
 export const SOLVED_API_BASE_URL = 'https://solved.ac/' as const;
 

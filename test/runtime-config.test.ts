@@ -8,7 +8,7 @@ import {
   ConfigurationError,
   loadProtectedCorsOrigins,
   loadSolvedClientCredentials,
-} from '../src/config.js';
+} from '../src/infrastructure/runtime-config.js';
 
 function credentialFiles(
   clientId = 'client-id',

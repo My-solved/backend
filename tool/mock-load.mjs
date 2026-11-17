@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { performance } from 'node:perf_hooks';
 
-import { createRequestHandler } from '../dist/src/app.js';
+import { createRequestHandler } from '../dist/src/adapters/http/gateway-handler.js';
 
 const LIMITS = Object.freeze({
   requests: Object.freeze({ default: 256, minimum: 16, maximum: 5_000 }),

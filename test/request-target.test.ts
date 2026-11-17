@@ -4,7 +4,7 @@ import test from 'node:test';
 import {
   MAX_REQUEST_TARGET_BYTES,
   parseRequestTarget,
-} from '../src/request-target.js';
+} from '../src/adapters/http/request-target.js';
 
 test('parses path and query components exactly once', () => {
   const parsed = parseRequestTarget(
