@@ -5,6 +5,7 @@ import test from 'node:test';
 
 import {
   inspectRequestBodyHeaders,
+  isStrictFormContentType,
   isStrictJsonContentType,
   MAX_REQUEST_BODY_BYTES,
   readIncomingBody,
@@ -64,6 +65,21 @@ test('accepts only JSON with one optional UTF-8 charset', () => {
     'application/json; charset=utf-8; profile=x',
     'application/json\n;charset=utf-8',
   ]) assert.equal(isStrictJsonContentType(value), false, value);
+});
+
+test('accepts only form-urlencoded with one optional UTF-8 charset', () => {
+  for (const value of [
+    'application/x-www-form-urlencoded',
+    'Application/X-WWW-Form-Urlencoded',
+    ' application/x-www-form-urlencoded ; charset = UTF-8\t',
+  ]) assert.equal(isStrictFormContentType(value), true, value);
+  for (const value of [
+    'application/form-urlencoded',
+    'application/x-www-form-urlencoded; charset=utf-16',
+    'application/x-www-form-urlencoded; charset="utf-8"',
+    'application/x-www-form-urlencoded; charset=utf-8; profile=x',
+    'application/x-www-form-urlencoded\n;charset=utf-8',
+  ]) assert.equal(isStrictFormContentType(value), false, value);
 });
 
 test('streams exactly 65,536 bytes and rejects the next byte', async () => {

@@ -121,6 +121,13 @@ export type V4RuntimePolicy =
       readonly enabled: true;
       readonly policy: 'generated';
       readonly supplement?: never;
+      readonly requiredSecurity?: never;
+    }
+  | {
+      readonly enabled: true;
+      readonly policy: 'supplemented';
+      readonly supplement: V4OAuthSupplement;
+      readonly requiredSecurity: V4SensitiveOperationPolicy;
     }
   | {
       readonly enabled: false;

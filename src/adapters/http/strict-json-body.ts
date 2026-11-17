@@ -239,6 +239,15 @@ export function parseAndValidateJsonBody(
   bytes: Uint8Array,
   schema: V4RequestSchema,
 ): ValidatedJsonRequestBody | undefined {
+  const value = parseStrictJsonValue(bytes);
+  return value === undefined
+    ? undefined
+    : createValidatedJsonRequestBody(value, schema);
+}
+
+export function parseStrictJsonValue(
+  bytes: Uint8Array,
+): JsonValue | undefined {
   if (bytes.byteLength === 0 || startsWithUtf8Bom(bytes)) {
     return undefined;
   }
@@ -252,8 +261,7 @@ export function parseAndValidateJsonBody(
       return undefined;
     }
     new JsonScanner(text).scan();
-    const value = JSON.parse(text) as JsonValue;
-    return createValidatedJsonRequestBody(value, schema);
+    return JSON.parse(text) as JsonValue;
   } catch {
     return undefined;
   }

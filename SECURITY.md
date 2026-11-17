@@ -8,8 +8,9 @@ in a public issue.
 
 ## Security boundaries
 
-This gateway accepts only the 81 runtime-enabled operations generated from the
-reviewed v4 contract: 71 reads and the exact ten documented user mutations.
+This gateway accepts all 83 runtime-enabled operations from the reviewed v4
+contract: 71 reads, the exact ten documented user mutations, and the two
+supplemented app/OAuth operations.
 Each operation keeps its fixed method, path/query schema, request-body policy,
 and response contract. The 28 user operations require one bounded RFC 6750
 Bearer value; four scoped-public reads accept one optionally. Authorization is
@@ -27,11 +28,11 @@ validated against the generated request schema. The other three mutations
 reject a body or media type. Caller Content-Length and Content-Encoding are
 never forwarded. Framed requests rejected before consumption receive
 `Connection: close`; unsupported `Expect` handshakes receive `417` without an
-interim `100 Continue`. Mutations
-are sent once with redirects disabled and are never retried.
+interim `100 Continue`. Mutations are sent once with redirects disabled and are
+never retried.
 
-The gateway does not accept an upstream URL, app-access operations, or OAuth.
-Raw request targets and decoded URI components are bounded and validated before
+The gateway does not accept an upstream URL or an unreviewed operation. Raw
+request targets and decoded URI components are bounded and validated before
 routing; upstream paths are built only from fixed `/api/v4` templates. The v4
 client ID and secret are read from the files named by `SOLVED_CLIENT_ID_FILE` and
 `SOLVED_CLIENT_SECRET_FILE`, then injected only into allowlisted v4 upstream
@@ -41,13 +42,23 @@ caller-supplied `x-client-id` and `x-client-secret` and uses its configured
 values upstream. The client secret is server-only and must never be copied into
 the image, committed, sent by a client, or placed in a build argument.
 
-The OAuth token and revoke routes remain disabled, but their reviewed request
-supplements are already fail-closed around the future activation boundary. The
-generated contract requires exact-origin browser CORS, `Cache-Control:
-no-store`, `Pragma: no-cache`, no ETag, one upstream attempt, server-owned app
-authentication, and rejection of caller Authorization. A future runtime cannot
-reclassify these app-class routes as wildcard-public merely because they carry
-no user Bearer header.
+The OAuth token and revoke routes are enabled only through their reviewed
+supplements. Token accepts strict JSON or form authorization-code and
+refresh-token variants; revoke accepts only form data with `token`. Fatal UTF-8,
+malformed percent escapes, empty components or names, missing `=`, duplicate
+decoded keys, unknown fields, and cross-variant fields fail closed. JSON and
+form inputs become the same deterministic form encoding behind an opaque
+validated type. Lone JSON surrogates are rejected rather than silently replaced.
+
+OAuth requires exact-origin browser CORS, `Cache-Control: no-store`, `Pragma:
+no-cache`, no ETag, one upstream attempt, server-owned app authentication, and
+rejection of every caller Authorization header. Its preflight permits only
+`Content-Type`, never Authorization. Cookie, caller app headers, and caller
+framing are not forwarded. Token exchange and revocation are never retried for
+`429`, upstream contract failures, network failures, or timeouts. A refresh
+token is rotated and single-use; after a timeout it is unknown whether upstream
+consumed it, so the safe recovery is application-specific reconciliation or
+reauthentication, not automatic replay.
 
 The solved.ac API response is treated as untrusted input and is limited by a
 request deadline and maximum response size. Redirects, undeclared statuses,
@@ -62,10 +73,10 @@ request is anonymous. Their browser CORS policy defaults closed and allows only
 exact origins from `SOLVED_PROTECTED_CORS_ORIGINS`, with no credentialed or
 wildcard mode; native requests without Origin remain supported. Protected
 preflight is resolved against the exact method at the matched literal path:
-Authorization is allowed for protected operations and Content-Type only for a
-JSON-body method. Anonymous unscoped public GETs keep wildcard CORS but never
-approve an Authorization preflight. CORS is only a browser boundary and does
-not replace caller policy.
+Authorization is allowed only for Bearer-aware methods; Content-Type is allowed
+for body methods. OAuth therefore advertises Content-Type alone. Anonymous
+unscoped public GETs keep wildcard CORS but never approve an Authorization
+preflight. CORS is only a browser boundary and does not replace caller policy.
 
 Each deployment consumes one operator-owned solved.ac app quota and is not a
 communal anonymous relay. The default Compose configuration publishes the

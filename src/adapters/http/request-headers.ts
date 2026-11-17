@@ -33,3 +33,19 @@ export function readUniqueRawHeader(
     ? { kind: 'absent' }
     : { kind: 'value', value };
 }
+
+export function rawHeadersContain(
+  rawHeaders: readonly string[] | undefined,
+  expectedName: string,
+): boolean {
+  if (rawHeaders === undefined) {
+    return false;
+  }
+  const normalized = expectedName.toLowerCase();
+  for (let index = 0; index < rawHeaders.length; index += 2) {
+    if (rawHeaders[index]?.toLowerCase() === normalized) {
+      return true;
+    }
+  }
+  return false;
+}

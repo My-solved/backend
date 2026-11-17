@@ -4,6 +4,7 @@ import type { BearerAuthorization } from '../../domain/bearer-authorization.js';
 import type {
   V4HttpMethod,
   V4RequestSchema,
+  V4SupplementRequestBodyContract,
 } from '../../domain/v4-operation-contract.js';
 import {
   ContractError,
@@ -13,14 +14,17 @@ import {
 import {
   findRuntimePath,
   findRuntimeRoute,
-  type MatchedV4Path,
   type MatchedV4Route,
 } from '../../application/v4-router.js';
 import { parseBearerAuthorization } from './bearer-authorization.js';
 import {
   corsDecision,
-  type CorsRoutePolicy,
 } from './cors-policy.js';
+import {
+  oauthRequestBodyEncoding,
+  parseAndValidateOAuthRequestBody,
+  type OAuthRequestBodyEncoding,
+} from './oauth-request-body.js';
 import {
   inspectRequestBodyHeaders,
   isStrictJsonContentType,
@@ -28,7 +32,9 @@ import {
   type RequestBodyHeaders,
 } from './request-body.js';
 import { parseRequestTarget } from './request-target.js';
+import { rawHeadersContain } from './request-headers.js';
 import { parseAndValidateJsonBody } from './strict-json-body.js';
+import { v4PathPolicy } from './v4-route-policy.js';
 import {
   proxyRequest,
   type ProxyDependencies,
@@ -72,11 +78,16 @@ export interface RequestHandlerOptions extends GatewayDependencies {
 type BodyPolicy =
   | { readonly kind: 'legacy-none' }
   | { readonly kind: 'mutation-none' }
-  | { readonly kind: 'json'; readonly schema: V4RequestSchema };
+  | { readonly kind: 'json'; readonly schema: V4RequestSchema }
+  | {
+      readonly kind: 'oauth';
+      readonly contract: V4SupplementRequestBodyContract;
+    };
 
 interface PreparedBase {
   readonly bodyPolicy: BodyPolicy;
   readonly corsHeaders: Readonly<Record<string, string>>;
+  readonly responseHeaders: Readonly<Record<string, string>>;
 }
 
 interface PreparedLocal extends PreparedBase {
@@ -101,6 +112,7 @@ type BodyPreparation =
       readonly kind: 'ready';
       readonly headers: RequestBodyHeaders;
       readonly body: Uint8Array | undefined;
+      readonly oauthEncoding?: OAuthRequestBodyEncoding;
     }
   | { readonly kind: 'response'; readonly response: GatewayResponse };
 
@@ -147,6 +159,20 @@ function errorResponse(
   );
 }
 
+function preparedErrorResponse(
+  prepared: PreparedBase,
+  status: number,
+  code: string,
+  headers: Readonly<Record<string, string>> = {},
+): GatewayResponse {
+  return errorResponse(
+    status,
+    code,
+    { ...prepared.responseHeaders, ...headers },
+    prepared.corsHeaders,
+  );
+}
+
 function withConnectionClose(value: GatewayResponse): GatewayResponse {
   if (value.headers.connection === 'close') {
     return value;
@@ -170,30 +196,6 @@ function asV4Method(method: string): V4HttpMethod | undefined {
     : undefined;
 }
 
-function routeCorsPolicy(
-  path: MatchedV4Path,
-  decodedSegments: readonly string[],
-): CorsRoutePolicy {
-  const routes = path.allowedMethods.map((method) => {
-    const route = findRuntimeRoute(method, decodedSegments);
-    if (route === undefined) {
-      throw new Error('Runtime path and method catalogs disagree');
-    }
-    return route;
-  });
-  return Object.freeze({
-    tokenAware: routes.some(
-      ({ operation }) => operation.access.bearer !== 'none',
-    ),
-    allowedMethods: path.allowedMethods,
-    jsonBodyMethods: Object.freeze(
-      routes
-        .filter(({ operation }) => operation.requestBody !== null)
-        .map(({ operation }) => operation.method),
-    ),
-  });
-}
-
 function planGatewayRequest(
   request: GatewayRequest,
   dependencies: GatewayDependencies,
@@ -205,11 +207,12 @@ function planGatewayRequest(
 
   const method = request.method?.toUpperCase() ?? 'GET';
   if (requestTarget.pathname === '/healthz') {
-    const healthPolicy: CorsRoutePolicy = {
-      tokenAware: false,
+    const healthPolicy = {
+      exactOrigin: false,
       allowedMethods: ['GET'],
-      jsonBodyMethods: [],
-    };
+      authorizationMethods: [],
+      contentTypeMethods: [],
+    } as const;
     const cors = corsDecision(
       request.rawHeaders,
       method === 'OPTIONS',
@@ -227,6 +230,7 @@ function planGatewayRequest(
         kind: 'local',
         bodyPolicy: { kind: 'legacy-none' },
         corsHeaders: cors.headers,
+        responseHeaders: {},
         response: response(
           204,
           new Uint8Array(),
@@ -250,6 +254,7 @@ function planGatewayRequest(
       kind: 'local',
       bodyPolicy: { kind: 'legacy-none' },
       corsHeaders: cors.headers,
+      responseHeaders: {},
       response: jsonResponse(
         200,
         { status: 'ok' },
@@ -263,20 +268,25 @@ function planGatewayRequest(
   if (path === undefined) {
     return { kind: 'response', response: errorResponse(404, 'not_found') };
   }
-  const routePolicy = routeCorsPolicy(
+  const routePolicy = v4PathPolicy(
     path,
     requestTarget.decodedPathSegments,
   );
   const cors = corsDecision(
     request.rawHeaders,
     method === 'OPTIONS',
-    routePolicy,
+    routePolicy.cors,
     dependencies.protectedCorsOrigins ?? [],
   );
   if (!cors.allowed) {
     return {
       kind: 'response',
-      response: errorResponse(403, 'cors_forbidden', {}, cors.headers),
+      response: errorResponse(
+        403,
+        'cors_forbidden',
+        routePolicy.responseHeaders,
+        cors.headers,
+      ),
     };
   }
   const allow = allowedMethods(path.allowedMethods);
@@ -285,10 +295,11 @@ function planGatewayRequest(
       kind: 'local',
       bodyPolicy: { kind: 'legacy-none' },
       corsHeaders: cors.headers,
+      responseHeaders: routePolicy.responseHeaders,
       response: response(
         204,
         new Uint8Array(),
-        { allow },
+        { ...routePolicy.responseHeaders, allow },
         cors.headers,
       ),
     };
@@ -301,7 +312,7 @@ function planGatewayRequest(
       response: errorResponse(
         405,
         'method_not_allowed',
-        { allow },
+        { ...routePolicy.responseHeaders, allow },
         cors.headers,
       ),
     };
@@ -322,6 +333,20 @@ function planGatewayRequest(
     );
     const bearerPolicy = route.operation.access.bearer;
     let authorization: BearerAuthorization | undefined;
+    if (
+      route.operation.runtime.policy === 'supplemented' &&
+      rawHeadersContain(request.rawHeaders, 'authorization')
+    ) {
+      return {
+        kind: 'response',
+        response: errorResponse(
+          400,
+          'invalid_authorization',
+          routePolicy.responseHeaders,
+          cors.headers,
+        ),
+      };
+    }
     if (bearerPolicy !== 'none') {
       const parsed = parseBearerAuthorization(request.rawHeaders);
       if (parsed.kind === 'invalid') {
@@ -330,7 +355,7 @@ function planGatewayRequest(
           response: errorResponse(
             400,
             'invalid_authorization',
-            {},
+            routePolicy.responseHeaders,
             cors.headers,
           ),
         };
@@ -341,7 +366,10 @@ function planGatewayRequest(
           response: errorResponse(
             401,
             'unauthorized',
-            { 'www-authenticate': 'Bearer' },
+            {
+              ...routePolicy.responseHeaders,
+              'www-authenticate': 'Bearer',
+            },
             cors.headers,
           ),
         };
@@ -356,7 +384,7 @@ function planGatewayRequest(
         response: errorResponse(
           503,
           'service_unavailable',
-          {},
+          routePolicy.responseHeaders,
           cors.headers,
         ),
       };
@@ -367,7 +395,9 @@ function planGatewayRequest(
         ? { kind: 'legacy-none' }
         : route.operation.requestBody === null
           ? { kind: 'mutation-none' }
-          : { kind: 'json', schema: route.operation.requestBody.schema };
+          : route.operation.requestBody.source === 'gateway-supplement'
+            ? { kind: 'oauth', contract: route.operation.requestBody }
+            : { kind: 'json', schema: route.operation.requestBody.schema };
     return {
       kind: 'proxy',
       route,
@@ -375,17 +405,28 @@ function planGatewayRequest(
       authorization,
       bodyPolicy,
       corsHeaders: cors.headers,
+      responseHeaders: routePolicy.responseHeaders,
     };
   } catch (error) {
     if (error instanceof ContractError) {
       return {
         kind: 'response',
-        response: errorResponse(error.status, error.code, {}, cors.headers),
+        response: errorResponse(
+          error.status,
+          error.code,
+          routePolicy.responseHeaders,
+          cors.headers,
+        ),
       };
     }
     return {
       kind: 'response',
-      response: errorResponse(500, 'internal_error', {}, cors.headers),
+      response: errorResponse(
+        500,
+        'internal_error',
+        routePolicy.responseHeaders,
+        cors.headers,
+      ),
     };
   }
 }
@@ -403,19 +444,10 @@ function prepareRequestBody(
     return {
       kind: 'response',
       response:
-        prepared.bodyPolicy.kind === 'json'
-          ? errorResponse(
-              413,
-              'payload_too_large',
-              {},
-              prepared.corsHeaders,
-            )
-          : errorResponse(
-              400,
-              'request_body_not_allowed',
-              {},
-              prepared.corsHeaders,
-            ),
+        prepared.bodyPolicy.kind === 'json' ||
+        prepared.bodyPolicy.kind === 'oauth'
+          ? preparedErrorResponse(prepared, 413, 'payload_too_large')
+          : preparedErrorResponse(prepared, 400, 'request_body_not_allowed'),
     };
   }
   if (inspection.kind === 'invalid-media') {
@@ -423,11 +455,10 @@ function prepareRequestBody(
       if (inspection.value.hasUnreadBody) {
         return {
           kind: 'response',
-          response: errorResponse(
+          response: preparedErrorResponse(
+            prepared,
             400,
             'request_body_not_allowed',
-            {},
-            prepared.corsHeaders,
           ),
         };
       }
@@ -436,30 +467,16 @@ function prepareRequestBody(
     return {
       kind: 'response',
       response:
-        prepared.bodyPolicy.kind === 'json'
-          ? errorResponse(
-              415,
-              'unsupported_media_type',
-              {},
-              prepared.corsHeaders,
-            )
-          : errorResponse(
-              400,
-              'request_body_not_allowed',
-              {},
-              prepared.corsHeaders,
-            ),
+        prepared.bodyPolicy.kind === 'json' ||
+        prepared.bodyPolicy.kind === 'oauth'
+          ? preparedErrorResponse(prepared, 415, 'unsupported_media_type')
+          : preparedErrorResponse(prepared, 400, 'request_body_not_allowed'),
     };
   }
   if (inspection.kind === 'invalid') {
     return {
       kind: 'response',
-      response: errorResponse(
-        400,
-        'invalid_request',
-        {},
-        prepared.corsHeaders,
-      ),
+      response: preparedErrorResponse(prepared, 400, 'invalid_request'),
     };
   }
 
@@ -468,11 +485,10 @@ function prepareRequestBody(
     if (headers.hasUnreadBody) {
       return {
         kind: 'response',
-        response: errorResponse(
+        response: preparedErrorResponse(
+          prepared,
           400,
           'request_body_not_allowed',
-          {},
-          prepared.corsHeaders,
         ),
       };
     }
@@ -486,11 +502,10 @@ function prepareRequestBody(
     ) {
       return {
         kind: 'response',
-        response: errorResponse(
+        response: preparedErrorResponse(
+          prepared,
           400,
           'request_body_not_allowed',
-          {},
-          prepared.corsHeaders,
         ),
       };
     }
@@ -504,27 +519,26 @@ function prepareRequestBody(
   if (!bodyPresent) {
     return {
       kind: 'response',
-      response: errorResponse(
-        400,
-        'request_body_required',
-        {},
-        prepared.corsHeaders,
-      ),
+      response: preparedErrorResponse(prepared, 400, 'request_body_required'),
     };
   }
+  const oauthEncoding =
+    prepared.bodyPolicy.kind === 'oauth' && headers.contentType !== undefined
+      ? oauthRequestBodyEncoding(
+          headers.contentType,
+          prepared.bodyPolicy.contract,
+        )
+      : undefined;
   if (
     headers.contentEncoding !== undefined ||
     headers.contentType === undefined ||
-    !isStrictJsonContentType(headers.contentType)
+    (prepared.bodyPolicy.kind === 'json'
+      ? !isStrictJsonContentType(headers.contentType)
+      : oauthEncoding === undefined)
   ) {
     return {
       kind: 'response',
-      response: errorResponse(
-        415,
-        'unsupported_media_type',
-        {},
-        prepared.corsHeaders,
-      ),
+      response: preparedErrorResponse(prepared, 415, 'unsupported_media_type'),
     };
   }
   if (
@@ -534,20 +548,21 @@ function prepareRequestBody(
   ) {
     return {
       kind: 'response',
-      response: errorResponse(
-        400,
-        'invalid_request_body',
-        {},
-        prepared.corsHeaders,
-      ),
+      response: preparedErrorResponse(prepared, 400, 'invalid_request_body'),
     };
   }
-  return { kind: 'ready', headers, body: knownBody };
+  return {
+    kind: 'ready',
+    headers,
+    body: knownBody,
+    ...(oauthEncoding === undefined ? {} : { oauthEncoding }),
+  };
 }
 
 async function executePreparedRequest(
   prepared: PreparedGatewayRequest,
   body: Uint8Array | undefined,
+  oauthEncoding: OAuthRequestBodyEncoding | undefined,
   dependencies: GatewayDependencies,
 ): Promise<GatewayResponse> {
   if (prepared.kind === 'local') {
@@ -555,30 +570,52 @@ async function executePreparedRequest(
   }
 
   let validatedBody;
+  let validatedOAuthBody;
   if (prepared.bodyPolicy.kind === 'json') {
     if (body === undefined || body.byteLength === 0) {
-      return errorResponse(
-        400,
-        'request_body_required',
-        {},
-        prepared.corsHeaders,
-      );
+      return preparedErrorResponse(prepared, 400, 'request_body_required');
     }
     validatedBody =
       parseAndValidateJsonBody(body, prepared.bodyPolicy.schema);
     if (validatedBody === undefined) {
-      return errorResponse(
-        400,
-        'invalid_request_body',
-        {},
-        prepared.corsHeaders,
-      );
+      return preparedErrorResponse(prepared, 400, 'invalid_request_body');
+    }
+  } else if (prepared.bodyPolicy.kind === 'oauth') {
+    if (body === undefined || body.byteLength === 0) {
+      return preparedErrorResponse(prepared, 400, 'request_body_required');
+    }
+    if (oauthEncoding === undefined) {
+      return preparedErrorResponse(prepared, 500, 'internal_error');
+    }
+    validatedOAuthBody = parseAndValidateOAuthRequestBody(
+      body,
+      oauthEncoding,
+      prepared.bodyPolicy.contract,
+    );
+    if (validatedOAuthBody === undefined) {
+      return preparedErrorResponse(prepared, 400, 'invalid_request_body');
     }
   }
 
   const operation = prepared.route.operation;
   let proxyPolicy: ProxyRequestPolicy;
-  if (operation.method === 'GET') {
+  if (operation.runtime.policy === 'supplemented') {
+    if (
+      operation.method !== 'POST' ||
+      prepared.authorization !== undefined ||
+      validatedOAuthBody === undefined
+    ) {
+      return preparedErrorResponse(prepared, 500, 'internal_error');
+    }
+    proxyPolicy = {
+      method: 'POST',
+      authentication: 'app-oauth',
+      responses: operation.responses,
+      requestBody: { kind: 'form', body: validatedOAuthBody },
+      responseCache: 'no-store',
+      responsePragma: 'no-cache',
+    };
+  } else if (operation.method === 'GET') {
     proxyPolicy =
       operation.access.bearer === 'none'
         ? {
@@ -596,12 +633,7 @@ async function executePreparedRequest(
           };
   } else {
     if (prepared.authorization === undefined) {
-      return errorResponse(
-        500,
-        'internal_error',
-        {},
-        prepared.corsHeaders,
-      );
+      return preparedErrorResponse(prepared, 500, 'internal_error');
     }
     if (operation.method === 'DELETE') {
       proxyPolicy = {
@@ -613,12 +645,7 @@ async function executePreparedRequest(
       };
     } else if (operation.method === 'PATCH') {
       if (validatedBody === undefined) {
-        return errorResponse(
-          500,
-          'internal_error',
-          {},
-          prepared.corsHeaders,
-        );
+        return preparedErrorResponse(prepared, 500, 'internal_error');
       }
       proxyPolicy = {
         method: 'PATCH',
@@ -648,12 +675,7 @@ async function executePreparedRequest(
     ...proxyDependencies
   } = dependencies;
   if (credentials === undefined) {
-    return errorResponse(
-      503,
-      'service_unavailable',
-      {},
-      prepared.corsHeaders,
-    );
+    return preparedErrorResponse(prepared, 503, 'service_unavailable');
   }
   try {
     const upstreamResponse = await proxyRequest(
@@ -664,19 +686,14 @@ async function executePreparedRequest(
     return response(
       upstreamResponse.status,
       upstreamResponse.body,
-      upstreamResponse.headers,
+      { ...upstreamResponse.headers, ...prepared.responseHeaders },
       prepared.corsHeaders,
     );
   } catch (error) {
     if (error instanceof UpstreamError) {
-      return errorResponse(
-        error.status,
-        error.code,
-        {},
-        prepared.corsHeaders,
-      );
+      return preparedErrorResponse(prepared, error.status, error.code);
     }
-    return errorResponse(500, 'internal_error', {}, prepared.corsHeaders);
+    return preparedErrorResponse(prepared, 500, 'internal_error');
   }
 }
 
@@ -692,7 +709,12 @@ export async function handleGatewayRequest(
   if (body.kind === 'response') {
     return body.response;
   }
-  return executePreparedRequest(plan, body.body, dependencies);
+  return executePreparedRequest(
+    plan,
+    body.body,
+    body.oauthEncoding,
+    dependencies,
+  );
 }
 
 function writeResponse(
@@ -732,16 +754,22 @@ export function createExpectationRejectionHandler(
     serverResponse.on('error', () => {});
     const target = parseRequestTarget(request.url);
     let corsHeaders: Readonly<Record<string, string>> = PUBLIC_CORS_HEADERS;
+    let responseHeaders: Readonly<Record<string, string>> = {};
     if (target !== undefined && target.pathname !== '/healthz') {
       const path = findRuntimePath(target.decodedPathSegments);
       if (path !== undefined) {
+        const routePolicy = v4PathPolicy(
+          path,
+          target.decodedPathSegments,
+        );
         const cors = corsDecision(
           request.rawHeaders,
           false,
-          routeCorsPolicy(path, target.decodedPathSegments),
+          routePolicy.cors,
           options.protectedCorsOrigins ?? [],
         );
         corsHeaders = cors.headers;
+        responseHeaders = routePolicy.responseHeaders;
       }
     }
     writeResponse(
@@ -749,7 +777,7 @@ export function createExpectationRejectionHandler(
       errorResponse(
         417,
         'expectation_failed',
-        { connection: 'close' },
+        { ...responseHeaders, connection: 'close' },
         corsHeaders,
       ),
     );
@@ -810,11 +838,11 @@ export function createRequestHandler(
       if (!unread) {
         request.resume();
       }
-      const overloaded = errorResponse(
+      const overloaded = preparedErrorResponse(
+        plan,
         503,
         'overloaded',
         { 'retry-after': '1' },
-        plan.corsHeaders,
       );
       writeResponse(
         serverResponse,
@@ -884,7 +912,10 @@ export function createRequestHandler(
 
     void (async () => {
       let body = bodyPreparation.body;
-      if (plan.bodyPolicy.kind === 'json') {
+      if (
+        plan.bodyPolicy.kind === 'json' ||
+        plan.bodyPolicy.kind === 'oauth'
+      ) {
         const incoming = await readIncomingBody(
           request,
           bodyPreparation.headers.contentLength,
@@ -900,12 +931,7 @@ export function createRequestHandler(
         if (incoming.kind === 'too-large') {
           send(
             withConnectionClose(
-              errorResponse(
-                413,
-                'payload_too_large',
-                {},
-                plan.corsHeaders,
-              ),
+              preparedErrorResponse(plan, 413, 'payload_too_large'),
             ),
           );
           return;
@@ -913,12 +939,7 @@ export function createRequestHandler(
         if (incoming.kind === 'invalid') {
           send(
             withConnectionClose(
-              errorResponse(
-                400,
-                'invalid_request_body',
-                {},
-                plan.corsHeaders,
-              ),
+              preparedErrorResponse(plan, 400, 'invalid_request_body'),
             ),
           );
           return;
@@ -935,13 +956,18 @@ export function createRequestHandler(
         return;
       }
       send(
-        await executePreparedRequest(plan, body, {
-          ...dependencies,
-          signal: controller.signal,
-        }),
+        await executePreparedRequest(
+          plan,
+          body,
+          bodyPreparation.oauthEncoding,
+          {
+            ...dependencies,
+            signal: controller.signal,
+          },
+        ),
       );
     })().catch(() =>
-      send(errorResponse(500, 'internal_error', {}, plan.corsHeaders)),
+      send(preparedErrorResponse(plan, 500, 'internal_error')),
     );
   };
 }

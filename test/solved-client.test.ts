@@ -3,6 +3,7 @@ import { ReadableStream } from 'node:stream/web';
 import test from 'node:test';
 
 import { parseBearerAuthorization } from '../src/adapters/http/bearer-authorization.js';
+import { parseAndValidateOAuthRequestBody } from '../src/adapters/http/oauth-request-body.js';
 import { V4_OPERATION_MANIFEST } from '../src/generated/v4-operations.js';
 import {
   proxyRequest as proxyUpstream,
@@ -15,6 +16,23 @@ import type { V4ResponseContract } from '../src/domain/v4-operation-contract.js'
 const upstreamUrl = new URL('https://solved.ac/api/v4/users/tourist');
 const responsePolicy =
   V4_OPERATION_MANIFEST['GET /api/v4/users/{handle}'].responses;
+const oauthOperation = V4_OPERATION_MANIFEST['POST /api/v4/oauth/token'];
+const oauthRequestBody = oauthOperation.requestBody;
+if (oauthRequestBody?.source !== 'gateway-supplement') {
+  throw new Error('missing OAuth supplement');
+}
+function oauthBody() {
+  const value = parseAndValidateOAuthRequestBody(
+    new TextEncoder().encode('grant_type=refresh_token&refresh_token=value'),
+    'form',
+    oauthRequestBody,
+  );
+  if (value === undefined) {
+    throw new Error('invalid OAuth fixture');
+  }
+  return value;
+}
+const validOAuthBody = oauthBody();
 
 const proxyRequest = (
   url: URL,
@@ -45,6 +63,18 @@ if (false) {
     authorization: bearer(),
   };
   void invalidPolicy;
+
+  // @ts-expect-error App OAuth policies cannot carry caller Authorization.
+  const oauthWithBearer: ProxyRequestPolicy = {
+    method: 'POST',
+    authentication: 'app-oauth',
+    responses: oauthOperation.responses,
+    responseCache: 'no-store',
+    responsePragma: 'no-cache',
+    authorization: bearer(),
+    requestBody: { kind: 'form', body: validOAuthBody },
+  };
+  void oauthWithBearer;
 }
 
 function jsonResponse(
@@ -101,6 +131,115 @@ test('injects only server-owned solved.ac credentials for v4', async () => {
   const headers = new Headers(capturedInit?.headers);
   assert.equal(headers.has('authorization'), false);
   assert.equal(headers.has('cookie'), false);
+});
+
+test('sends opaque OAuth form bodies with app-only policy and cache guards', async () => {
+  let capturedInit: RequestInit | undefined;
+  const actual = await proxyUpstream(
+    new URL('https://solved.ac/api/v4/oauth/token'),
+    {
+      method: 'POST',
+      authentication: 'app-oauth',
+      responses: oauthOperation.responses,
+      responseCache: 'no-store',
+      responsePragma: 'no-cache',
+      requestBody: { kind: 'form', body: validOAuthBody },
+    },
+    {
+      credentials: {
+        clientId: 'server-client-id',
+        clientSecret: 'server-client-secret',
+      },
+      fetch: async (_input, init) => {
+        capturedInit = init;
+        return jsonResponse('{}', {
+          headers: {
+            'cache-control': 'public',
+            etag: '"private"',
+          },
+        });
+      },
+    },
+  );
+
+  assert.deepEqual(capturedInit?.headers, {
+    accept: 'application/json',
+    'x-client-id': 'server-client-id',
+    'x-client-secret': 'server-client-secret',
+    'content-type': 'application/x-www-form-urlencoded',
+  });
+  assert.ok(capturedInit?.body instanceof Uint8Array);
+  assert.equal(
+    new TextDecoder().decode(capturedInit.body),
+    'grant_type=refresh_token&refresh_token=value',
+  );
+  assert.equal(actual.headers['cache-control'], 'no-store');
+  assert.equal(actual.headers.pragma, 'no-cache');
+  assert.equal(actual.headers.etag, undefined);
+});
+
+test('rejects forged OAuth and supplemented GET policies before fetch', async () => {
+  const unsafePolicies = [
+    {
+      method: 'GET', responses: responsePolicy, responseCache: 'upstream',
+      authentication: 'app-oauth', responsePragma: 'no-cache',
+    },
+    {
+      method: 'GET', responses: responsePolicy, responseCache: 'upstream',
+      responsePragma: 'no-cache',
+    },
+    {
+      method: 'POST', authentication: 'app-oauth',
+      responses: oauthOperation.responses, responseCache: 'no-store',
+      responsePragma: 'no-cache', authorization: bearer(),
+      requestBody: { kind: 'form', body: validOAuthBody },
+    },
+    {
+      method: 'POST', authentication: 'app-oauth',
+      responses: oauthOperation.responses, responseCache: 'no-store',
+      responsePragma: 'no-cache',
+      requestBody: { kind: 'form', body: {} },
+    },
+  ];
+  for (const unsafe of unsafePolicies) {
+    let calls = 0;
+    await assert.rejects(
+      proxyUpstream(
+        new URL('https://solved.ac/api/v4/oauth/token'),
+        unsafe as unknown as ProxyRequestPolicy,
+        {
+          credentials: {
+            clientId: 'server-client-id',
+            clientSecret: 'server-client-secret',
+          },
+          fetch: async () => { calls += 1; return jsonResponse(); },
+        },
+      ),
+      TypeError,
+    );
+    assert.equal(calls, 0);
+  }
+
+  let missingCredentialCalls = 0;
+  await assert.rejects(
+    proxyUpstream(
+      new URL('https://solved.ac/api/v4/oauth/token'),
+      {
+        method: 'POST', authentication: 'app-oauth',
+        responses: oauthOperation.responses, responseCache: 'no-store',
+        responsePragma: 'no-cache',
+        requestBody: { kind: 'form', body: validOAuthBody },
+      },
+      {
+        fetch: async () => {
+          missingCredentialCalls += 1;
+          return jsonResponse();
+        },
+      },
+    ),
+    /OAuth requests require server credentials/u,
+  );
+  assert.equal(missingCredentialCalls, 0);
 });
 
 test('forwards only a validated typed Bearer value with server credentials', async () => {

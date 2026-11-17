@@ -17,9 +17,10 @@ export interface CorsDecision {
 }
 
 export interface CorsRoutePolicy {
-  readonly tokenAware: boolean;
+  readonly exactOrigin: boolean;
   readonly allowedMethods: readonly V4HttpMethod[];
-  readonly jsonBodyMethods: readonly V4HttpMethod[];
+  readonly authorizationMethods: readonly V4HttpMethod[];
+  readonly contentTypeMethods: readonly V4HttpMethod[];
 }
 
 function normalizedPolicy(
@@ -27,9 +28,10 @@ function normalizedPolicy(
 ): CorsRoutePolicy {
   return typeof policy === 'boolean'
     ? {
-        tokenAware: policy,
+        exactOrigin: policy,
         allowedMethods: ['GET'],
-        jsonBodyMethods: [],
+        authorizationMethods: policy ? ['GET'] : [],
+        contentTypeMethods: [],
       }
     : policy;
 }
@@ -104,7 +106,7 @@ export function corsDecision(
   protectedOrigins: readonly string[],
 ): CorsDecision {
   const policy = normalizedPolicy(routePolicy);
-  if (!policy.tokenAware) {
+  if (!policy.exactOrigin) {
     return publicCorsDecision(rawHeaders, preflight);
   }
 
@@ -158,8 +160,12 @@ export function corsDecision(
   if (requestedHeaders.kind === 'value') {
     const names = requestedHeaderNames(requestedHeaders.value);
     const allowedNames = new Set([
-      'authorization',
-      ...(policy.jsonBodyMethods.includes(method) ? ['content-type'] : []),
+      ...(policy.authorizationMethods.includes(method)
+        ? ['authorization']
+        : []),
+      ...(policy.contentTypeMethods.includes(method)
+        ? ['content-type']
+        : []),
     ]);
     if (
       names === undefined ||
@@ -168,10 +174,14 @@ export function corsDecision(
       return deniedProtectedCors(true);
     }
   }
-  headers['access-control-allow-headers'] = policy.jsonBodyMethods.includes(
-    method,
-  )
-    ? 'Authorization, Content-Type'
-    : 'Authorization';
+  const allowedHeaderNames = [
+    ...(policy.authorizationMethods.includes(method)
+      ? ['Authorization']
+      : []),
+    ...(policy.contentTypeMethods.includes(method) ? ['Content-Type'] : []),
+  ];
+  if (allowedHeaderNames.length > 0) {
+    headers['access-control-allow-headers'] = allowedHeaderNames.join(', ');
+  }
   return Object.freeze({ allowed: true, headers: Object.freeze(headers) });
 }

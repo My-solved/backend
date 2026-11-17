@@ -166,18 +166,20 @@ const expectedMutationKeys = [
   'POST /api/v4/account/bookmarks/order',
   'POST /api/v4/account/bookmarks/{slug}/problems',
   'POST /api/v4/account/bookmarks/{slug}/problems/remove',
+  'POST /api/v4/oauth/revoke',
+  'POST /api/v4/oauth/token',
 ] as const;
 
-test('method-aware runtime catalog locks all 81 reviewed operations', () => {
-  assert.equal(RUNTIME_ROUTES.length, 81);
-  assert.equal(RUNTIME_OPERATION_KEYS.length, 81);
+test('method-aware runtime catalog locks all 83 reviewed operations', () => {
+  assert.equal(RUNTIME_ROUTES.length, 83);
+  assert.equal(RUNTIME_OPERATION_KEYS.length, 83);
   assert.deepEqual(
     RUNTIME_OPERATION_KEYS,
     [...RUNTIME_OPERATION_KEYS].sort(),
   );
-  assert.equal(new Set(RUNTIME_OPERATION_KEYS).size, 81);
+  assert.equal(new Set(RUNTIME_OPERATION_KEYS).size, 83);
   assert.deepEqual(MUTATION_OPERATION_KEYS, expectedMutationKeys);
-  assert.equal(MUTATION_ROUTES.length, 10);
+  assert.equal(MUTATION_ROUTES.length, 12);
   assert.deepEqual(
     Object.fromEntries(
       ['GET', 'POST', 'PATCH', 'DELETE'].map((method) => [
@@ -187,10 +189,12 @@ test('method-aware runtime catalog locks all 81 reviewed operations', () => {
         ).length,
       ]),
     ),
-    { GET: 71, POST: 5, PATCH: 3, DELETE: 2 },
+    { GET: 71, POST: 7, PATCH: 3, DELETE: 2 },
   );
   assert.equal(
-    MUTATION_ROUTES.every(
+    MUTATION_ROUTES.filter(
+      ({ operation }) => operation.runtime.policy === 'generated',
+    ).every(
       ({ operation }) =>
         operation.runtime.enabled &&
         operation.access.class === 'user' &&
@@ -200,18 +204,30 @@ test('method-aware runtime catalog locks all 81 reviewed operations', () => {
     true,
   );
   assert.equal(
+    MUTATION_ROUTES.filter(
+      ({ operation }) => operation.runtime.policy === 'generated',
+    ).length,
+    10,
+  );
+  assert.deepEqual(
+    MUTATION_ROUTES.filter(
+      ({ operation }) => operation.runtime.policy === 'supplemented',
+    ).map(({ key }) => key),
+    ['POST /api/v4/oauth/revoke', 'POST /api/v4/oauth/token'],
+  );
+  assert.equal(
     MUTATION_ROUTES.filter(({ operation }) => operation.requestBody !== null)
       .length,
-    7,
+    9,
   );
   assert.equal(
     MUTATION_ROUTES.filter(({ operation }) => operation.requestBody === null)
       .length,
     3,
   );
-  assert.equal(
-    RUNTIME_OPERATION_KEYS.some((key) => key.includes('/api/v4/oauth/')),
-    false,
+  assert.deepEqual(
+    RUNTIME_OPERATION_KEYS.filter((key) => key.includes('/api/v4/oauth/')),
+    ['POST /api/v4/oauth/revoke', 'POST /api/v4/oauth/token'],
   );
 
   const methodsByPath = new Map<string, string[]>();
@@ -220,7 +236,7 @@ test('method-aware runtime catalog locks all 81 reviewed operations', () => {
     methods.push(operation.method);
     methodsByPath.set(operation.gatewayPath, methods);
   }
-  assert.equal(methodsByPath.size, 77);
+  assert.equal(methodsByPath.size, 79);
   const methodOrder = ['GET', 'POST', 'PATCH', 'DELETE'];
   assert.deepEqual(
     [...methodsByPath]
@@ -256,7 +272,7 @@ test('method-aware runtime catalog locks all 81 reviewed operations', () => {
   );
 
   const bodyRoutes = MUTATION_ROUTES.filter(
-    ({ operation }) => operation.requestBody !== null,
+    ({ operation }) => operation.requestBody?.source === 'openapi',
   );
   assert.equal(
     bodyRoutes.every(
@@ -280,7 +296,7 @@ test('method-aware runtime catalog locks all 81 reviewed operations', () => {
 });
 
 for (const route of MUTATION_ROUTES) {
-  test(`resolves generated mutation route ${route.key}`, () => {
+  test(`resolves runtime non-GET route ${route.key}`, () => {
     const pathValues = Object.fromEntries(
       route.operation.parameters.path.map((parameter) => [
         parameter.name,
@@ -537,7 +553,6 @@ test('route matching gives a literal segment precedence over a parameter', () =>
 });
 
 const closedRoutes = [
-  '/solved/v4/oauth/token',
   '/solved/problem/show?problemId=1000',
   '/solved/v4/achievements/items/title/unknown',
 ] as const;
@@ -553,6 +568,23 @@ for (const target of closedRoutes) {
     );
   });
 }
+
+test('GET-only compatibility resolver does not dispatch the OAuth POST', () => {
+  assert.throws(
+    () => resolveProxyRequest(requestTarget('/solved/v4/oauth/token')),
+    (error: unknown) =>
+      error instanceof ContractError &&
+      error.status === 404 &&
+      error.code === 'not_found',
+  );
+  assert.equal(
+    findRuntimeRoute(
+      'POST',
+      requestTarget('/solved/v4/oauth/token').decodedPathSegments,
+    )?.key,
+    'POST /api/v4/oauth/token',
+  );
+});
 
 test('route compiler rejects duplicate and ambiguous templates', () => {
   const profile = GET_ROUTES.find(

@@ -4,6 +4,10 @@ import {
 } from '../../domain/bearer-authorization.js';
 import type { SolvedClientCredentials } from '../../domain/solved-client-credentials.js';
 import {
+  validatedFormRequestBodyBytes,
+  type ValidatedFormRequestBody,
+} from '../../domain/validated-form-request-body.js';
+import {
   validatedJsonRequestBodyBytes,
   type ValidatedJsonRequestBody,
 } from '../../domain/validated-json-request-body.js';
@@ -40,41 +44,64 @@ type JsonProxyRequestBody = {
   readonly kind: 'json';
   readonly body: ValidatedJsonRequestBody;
 };
+type FormProxyRequestBody = {
+  readonly kind: 'form';
+  readonly body: ValidatedFormRequestBody;
+};
 
 export type ProxyRequestPolicy =
   | {
       readonly method: 'GET';
       readonly responses: Readonly<Record<string, V4ResponseContract>>;
       readonly responseCache: 'upstream';
+      readonly authentication?: never;
       readonly authorization?: never;
+      readonly responsePragma?: never;
       readonly requestBody?: never;
     }
   | {
       readonly method: 'GET';
       readonly responses: Readonly<Record<string, V4ResponseContract>>;
       readonly responseCache: 'no-store';
+      readonly authentication?: never;
       readonly authorization?: BearerAuthorization;
+      readonly responsePragma?: never;
       readonly requestBody?: never;
     }
   | {
       readonly method: 'POST';
       readonly responses: Readonly<Record<string, V4ResponseContract>>;
       readonly responseCache: 'no-store';
+      readonly authentication?: never;
       readonly authorization: BearerAuthorization;
+      readonly responsePragma?: never;
       readonly requestBody: NoProxyRequestBody | JsonProxyRequestBody;
+    }
+  | {
+      readonly method: 'POST';
+      readonly authentication: 'app-oauth';
+      readonly responses: Readonly<Record<string, V4ResponseContract>>;
+      readonly responseCache: 'no-store';
+      readonly responsePragma: 'no-cache';
+      readonly authorization?: never;
+      readonly requestBody: FormProxyRequestBody;
     }
   | {
       readonly method: 'PATCH';
       readonly responses: Readonly<Record<string, V4ResponseContract>>;
       readonly responseCache: 'no-store';
+      readonly authentication?: never;
       readonly authorization: BearerAuthorization;
+      readonly responsePragma?: never;
       readonly requestBody: JsonProxyRequestBody;
     }
   | {
       readonly method: 'DELETE';
       readonly responses: Readonly<Record<string, V4ResponseContract>>;
       readonly responseCache: 'no-store';
+      readonly authentication?: never;
       readonly authorization: BearerAuthorization;
+      readonly responsePragma?: never;
       readonly requestBody: NoProxyRequestBody;
     };
 
@@ -97,6 +124,9 @@ export class UpstreamError extends Error {
 function requestBytesFor(policy: ProxyRequestPolicy): Uint8Array | undefined {
   const method = (policy as { readonly method?: unknown }).method;
   if (method === 'GET') {
+    if ('authentication' in policy || 'responsePragma' in policy) {
+      throw new TypeError('Invalid proxy request policy');
+    }
     if (
       policy.responseCache !== 'upstream' &&
       policy.responseCache !== 'no-store'
@@ -121,6 +151,22 @@ function requestBytesFor(policy: ProxyRequestPolicy): Uint8Array | undefined {
     ProxyRequestPolicy,
     { readonly method: 'POST' | 'PATCH' | 'DELETE' }
   >;
+  if ('authentication' in mutation) {
+    if (
+      method !== 'POST' ||
+      mutation.authentication !== 'app-oauth' ||
+      mutation.responseCache !== 'no-store' ||
+      mutation.responsePragma !== 'no-cache' ||
+      'authorization' in mutation ||
+      mutation.requestBody?.kind !== 'form'
+    ) {
+      throw new TypeError('Invalid proxy request policy');
+    }
+    return validatedFormRequestBodyBytes(mutation.requestBody.body);
+  }
+  if ('responsePragma' in mutation) {
+    throw new TypeError('Invalid proxy request policy');
+  }
   if (
     mutation.responseCache !== 'no-store' ||
     mutation.authorization === undefined ||
@@ -289,13 +335,23 @@ export async function proxyRequest(
       requestHeaders['x-client-id'] = dependencies.credentials.clientId;
       requestHeaders['x-client-secret'] = dependencies.credentials.clientSecret;
     }
+    if (
+      'authentication' in policy &&
+      policy.authentication === 'app-oauth' &&
+      dependencies.credentials === undefined
+    ) {
+      throw new TypeError('OAuth requests require server credentials');
+    }
     if (policy.authorization !== undefined) {
       requestHeaders.authorization = bearerAuthorizationHeader(
         policy.authorization,
       );
     }
     if (requestBody !== undefined) {
-      requestHeaders['content-type'] = 'application/json';
+      requestHeaders['content-type'] =
+        'authentication' in policy && policy.authentication === 'app-oauth'
+          ? 'application/x-www-form-urlencoded'
+          : 'application/json';
     }
     const response = await fetchImplementation(upstreamUrl, {
       method: policy.method,
@@ -336,6 +392,12 @@ export async function proxyRequest(
     }
     if (policy.responseCache === 'no-store') {
       responseHeaders['cache-control'] = 'no-store';
+    }
+    if (
+      'responsePragma' in policy &&
+      policy.responsePragma === 'no-cache'
+    ) {
+      responseHeaders.pragma = 'no-cache';
     }
 
     const body = await readLimitedBody(response, maxResponseBytes);
