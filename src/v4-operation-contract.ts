@@ -2,6 +2,8 @@ export type V4HttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
 
 export type V4AccessClass = 'open' | 'app' | 'public' | 'user';
 
+export type V4BearerPolicy = 'none' | 'optional' | 'required';
+
 export type V4JsonScalar = string | number | boolean | null;
 
 interface V4SchemaBase {
@@ -95,6 +97,7 @@ export interface V4OperationContract {
   readonly upstreamPath: `/api/v4/${string}`;
   readonly gatewayPath: `/solved/v4/${string}`;
   readonly access: {
+    readonly bearer: V4BearerPolicy;
     readonly class: V4AccessClass;
     readonly scope?: string;
   };
