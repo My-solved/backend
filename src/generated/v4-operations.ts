@@ -3,7 +3,7 @@
  * Snapshot SHA-256: 312abfb4677fc67d914f6a357ff5b89d170eb65791ecb5d3ab30ab873352125d
  * Do not edit directly; run npm run openapi:operations:update.
  */
-import type { V4OperationManifest } from '../v4-operation-contract.js';
+import type { V4OperationManifest } from '../domain/v4-operation-contract.js';
 
 export const V4_OPERATION_SNAPSHOT_SHA256 = "312abfb4677fc67d914f6a357ff5b89d170eb65791ecb5d3ab30ab873352125d" as const;
 

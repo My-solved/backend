@@ -2,15 +2,15 @@ import assert from 'node:assert/strict';
 import { ReadableStream } from 'node:stream/web';
 import test from 'node:test';
 
-import { parseBearerAuthorization } from '../src/authorization.js';
+import { parseBearerAuthorization } from '../src/adapters/http/bearer-authorization.js';
 import { V4_OPERATION_MANIFEST } from '../src/generated/v4-operations.js';
 import {
   proxyRequest as proxyUpstream,
   type ProxyDependencies,
   type ProxyRequestPolicy,
   UpstreamError,
-} from '../src/proxy-handler.js';
-import type { V4ResponseContract } from '../src/v4-operation-contract.js';
+} from '../src/adapters/solved/solved-client.js';
+import type { V4ResponseContract } from '../src/domain/v4-operation-contract.js';
 
 const upstreamUrl = new URL('https://solved.ac/api/v4/users/tourist');
 const responsePolicy =

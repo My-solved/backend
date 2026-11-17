@@ -1,16 +1,19 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ContractError, resolveProxyRequest } from '../src/contract.js';
-import { parseRequestTarget } from '../src/request-target.js';
+import {
+  ContractError,
+  resolveProxyRequest,
+} from '../src/application/v4-request-contract.js';
+import { parseRequestTarget } from '../src/adapters/http/request-target.js';
 import {
   compileGetRouter,
   GET_OPERATION_KEYS,
   GET_ROUTES,
   type V4GetRoute,
-} from '../src/routes.js';
-import type { V4RequestSchema } from '../src/v4-operation-contract.js';
-import { validateUriValue } from '../src/uri-schema.js';
+} from '../src/application/v4-router.js';
+import type { V4RequestSchema } from '../src/domain/v4-operation-contract.js';
+import { validateUriValue } from '../src/domain/uri-schema.js';
 
 function requestTarget(raw: string) {
   const parsed = parseRequestTarget(raw);

@@ -1046,7 +1046,7 @@ export function renderOperationManifest(manifest, snapshotSha256) {
  * Snapshot SHA-256: ${snapshotSha256}
  * Do not edit directly; run npm run openapi:operations:update.
  */
-import type { V4OperationManifest } from '../v4-operation-contract.js';
+import type { V4OperationManifest } from '../domain/v4-operation-contract.js';
 
 export const V4_OPERATION_SNAPSHOT_SHA256 = ${JSON.stringify(snapshotSha256)} as const;
 

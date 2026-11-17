@@ -1,14 +1,10 @@
+import type { ParsedRequestTarget } from '../../application/parsed-request-target.js';
+
 export const MAX_REQUEST_TARGET_BYTES = 8_192;
 
 const INVALID_RAW_TARGET = /[\p{Cc}\u0020]/u;
 const INVALID_DECODED_COMPONENT = /\p{Cc}/u;
 const VALID_PERCENT_ESCAPE = /^[0-9A-Fa-f]{2}$/u;
-
-export interface ParsedRequestTarget {
-  readonly url: URL;
-  readonly pathname: string;
-  readonly decodedPathSegments: readonly string[];
-}
 
 function hasValidPercentEncoding(value: string): boolean {
   for (let index = 0; index < value.length; index += 1) {

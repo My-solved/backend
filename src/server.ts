@@ -4,15 +4,15 @@ import { pathToFileURL } from 'node:url';
 import {
   createRequestHandler,
   DEFAULT_MAX_CONCURRENT_REQUESTS,
-} from './app.js';
+} from './adapters/http/gateway-handler.js';
 import {
   loadProtectedCorsOrigins,
   loadSolvedClientCredentials,
-} from './config.js';
+} from './infrastructure/runtime-config.js';
 import {
   DEFAULT_MAX_RESPONSE_BYTES,
   DEFAULT_UPSTREAM_TIMEOUT_MS,
-} from './proxy-handler.js';
+} from './adapters/solved/solved-client.js';
 
 const DEFAULT_PORT = 3_000;
 const DEFAULT_HOST = '0.0.0.0';

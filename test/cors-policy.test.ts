@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { corsDecision } from '../src/cors-policy.js';
+import { corsDecision } from '../src/adapters/http/cors-policy.js';
 
 const allowedOrigins = ['https://app.example', 'http://localhost:3000'];
 

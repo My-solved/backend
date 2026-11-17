@@ -3,7 +3,10 @@ import { EventEmitter, once } from 'node:events';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import test from 'node:test';
 
-import { createRequestHandler, handleGatewayRequest } from '../src/app.js';
+import {
+  createRequestHandler,
+  handleGatewayRequest,
+} from '../src/adapters/http/gateway-handler.js';
 
 const text = (body: Uint8Array): string => new TextDecoder().decode(body);
 const credentials = Object.freeze({
