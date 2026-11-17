@@ -8,6 +8,7 @@ import {
 } from './adapters/http/gateway-handler.js';
 import {
   loadProtectedCorsOrigins,
+  loadServerRuntimeConfig,
   loadSolvedClientCredentials,
 } from './infrastructure/runtime-config.js';
 import {
@@ -19,29 +20,20 @@ const DEFAULT_PORT = 3_000;
 const DEFAULT_HOST = '0.0.0.0';
 const SHUTDOWN_GRACE_MS = 10_000;
 
-function readPositiveInteger(value: string | undefined, fallback: number): number {
-  if (value === undefined || !/^[1-9]\d*$/u.test(value)) {
-    return fallback;
-  }
-  const parsed = Number(value);
-  return Number.isSafeInteger(parsed) ? parsed : fallback;
-}
-
 export function startServer(): Server {
-  const port = readPositiveInteger(process.env.PORT, DEFAULT_PORT);
-  const host = process.env.HOST?.trim() || DEFAULT_HOST;
-  const timeoutMs = readPositiveInteger(
-    process.env.REQUEST_TIMEOUT_MS,
-    DEFAULT_UPSTREAM_TIMEOUT_MS,
-  );
-  const maxResponseBytes = readPositiveInteger(
-    process.env.MAX_RESPONSE_BYTES,
-    DEFAULT_MAX_RESPONSE_BYTES,
-  );
-  const maxConcurrentRequests = readPositiveInteger(
-    process.env.MAX_CONCURRENT_REQUESTS,
-    DEFAULT_MAX_CONCURRENT_REQUESTS,
-  );
+  const {
+    host,
+    port,
+    timeoutMs,
+    maxResponseBytes,
+    maxConcurrentRequests,
+  } = loadServerRuntimeConfig(process.env, {
+    host: DEFAULT_HOST,
+    port: DEFAULT_PORT,
+    timeoutMs: DEFAULT_UPSTREAM_TIMEOUT_MS,
+    maxResponseBytes: DEFAULT_MAX_RESPONSE_BYTES,
+    maxConcurrentRequests: DEFAULT_MAX_CONCURRENT_REQUESTS,
+  });
   const credentials = loadSolvedClientCredentials();
   const protectedCorsOrigins = loadProtectedCorsOrigins();
   const handlerOptions = {
