@@ -86,7 +86,7 @@ test('does not expose an unrelated compatibility health route', async () => {
 test('returns public CORS preflight without calling upstream', async () => {
   let calls = 0;
   const result = await handleGatewayRequest(
-    { method: 'OPTIONS', url: '/solved/site/stats' },
+    { method: 'OPTIONS', url: '/solved/user/show?handle=tourist' },
     {
       fetch: async () => {
         calls += 1;
@@ -105,7 +105,7 @@ for (const method of ['POST', 'PUT', 'DELETE', 'PATCH', 'HEAD']) {
   test(`rejects ${method}`, async () => {
     const result = await handleGatewayRequest({
       method,
-      url: '/solved/site/stats',
+      url: '/solved/user/show?handle=tourist',
     });
     assert.equal(result.status, 405);
     assert.equal(result.headers.allow, 'GET, OPTIONS');
@@ -126,6 +126,34 @@ test('rejects an unknown path before calling upstream', async () => {
   assert.equal(result.status, 404);
   assert.equal(calls, 0);
 });
+
+const removedV3Targets = [
+  '/solved/user/organizations?handle=tourist',
+  '/solved/user/available_badges?handle=tourist',
+  '/solved/user/top_100?handle=tourist',
+  '/solved/search/suggestion?query=rsa',
+  '/solved/arena/contests',
+  '/solved/site/stats',
+] as const;
+
+for (const url of removedV3Targets) {
+  test(`rejects removed v3 route before calling upstream: ${url}`, async () => {
+    let calls = 0;
+    const result = await handleGatewayRequest(
+      { method: 'GET', url },
+      {
+        fetch: async () => {
+          calls += 1;
+          return new Response('{}');
+        },
+      },
+    );
+
+    assert.equal(result.status, 404);
+    assert.deepEqual(JSON.parse(text(result.body)), { error: 'not_found' });
+    assert.equal(calls, 0);
+  });
+}
 
 const invalidTargets = [
   'https://evil.invalid/solved/site/stats',
@@ -167,7 +195,7 @@ test('maps contract, network, and timeout errors without leaking details', async
   assert.equal(invalid.headers['cache-control'], 'no-store');
 
   const failed = await handleGatewayRequest(
-    { method: 'GET', url: '/solved/site/stats' },
+    { method: 'GET', url: '/solved/user/show?handle=tourist' },
     {
       fetch: async () => {
         throw new Error('private upstream detail');
@@ -180,7 +208,7 @@ test('maps contract, network, and timeout errors without leaking details', async
   });
 
   const timedOut = await handleGatewayRequest(
-    { method: 'GET', url: '/solved/site/stats' },
+    { method: 'GET', url: '/solved/user/show?handle=tourist' },
     {
       timeoutMs: 1,
       fetch: (_input, init) =>
@@ -248,7 +276,7 @@ test('requires server credentials before making a v4 request', async () => {
 test('does not send v4 app credentials to the legacy v3 API', async () => {
   let observedHeaders: RequestInit['headers'] | undefined;
   const result = await handleGatewayRequest(
-    { method: 'GET', url: '/solved/site/stats' },
+    { method: 'GET', url: '/solved/user/show?handle=tourist' },
     {
       credentials: {
         clientId: 'trusted-client-id',
@@ -307,7 +335,7 @@ test('rejects request bodies before calling upstream', () => {
     },
   });
   const response = new FakeServerResponse();
-  const request = incomingRequest('/solved/site/stats', {
+  const request = incomingRequest('/solved/user/show?handle=tourist', {
     'content-length': '1',
   });
 
@@ -335,7 +363,7 @@ test('caps concurrent proxy requests while health remains available', async () =
 
   const first = new FakeServerResponse();
   handler(
-    incomingRequest('/solved/site/stats'),
+    incomingRequest('/solved/user/show?handle=first'),
     asServerResponse(first),
   );
   await new Promise<void>((resolve) => setImmediate(resolve));
@@ -343,7 +371,7 @@ test('caps concurrent proxy requests while health remains available', async () =
 
   const overloaded = new FakeServerResponse();
   handler(
-    incomingRequest('/solved/arena/contests'),
+    incomingRequest('/solved/user/show?handle=second'),
     asServerResponse(overloaded),
   );
   assert.equal(overloaded.status, 503);
@@ -360,7 +388,7 @@ test('caps concurrent proxy requests while health remains available', async () =
 
   const next = new FakeServerResponse();
   handler(
-    incomingRequest('/solved/arena/contests'),
+    incomingRequest('/solved/user/show?handle=second'),
     asServerResponse(next),
   );
   await new Promise<void>((resolve) => setImmediate(resolve));
@@ -388,7 +416,7 @@ test('aborts upstream work when the client disconnects', async () => {
   const response = new FakeServerResponse();
 
   handler(
-    incomingRequest('/solved/site/stats'),
+    incomingRequest('/solved/user/show?handle=tourist'),
     asServerResponse(response),
   );
   await new Promise<void>((resolve) => setImmediate(resolve));

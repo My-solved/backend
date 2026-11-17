@@ -111,12 +111,6 @@ const shortLanguage = boundedText(16);
 
 export const ROUTES = Object.freeze({
   '/solved/user/show': defineRoute('v3', 'user/show', [handle]),
-  '/solved/user/organizations': defineRoute('v3', 'user/organizations', [
-    handle,
-  ]),
-  '/solved/user/available_badges': defineRoute('v3', 'user/available_badges', [
-    handle,
-  ]),
   '/solved/user/grass': defineRoute('v3', 'user/grass', [
     handle,
     Object.freeze({
@@ -125,7 +119,6 @@ export const ROUTES = Object.freeze({
       validate: nonEmpty(128),
     }),
   ]),
-  '/solved/user/top_100': defineRoute('v3', 'user/top_100', [handle]),
   '/solved/user/problem_stats': defineRoute('v3', 'user/problem_stats', [
     handle,
   ]),
@@ -135,9 +128,6 @@ export const ROUTES = Object.freeze({
   ]),
   '/solved/badge/show': defineRoute('v3', 'badge/show', [
     identifier('badgeId'),
-  ]),
-  '/solved/search/suggestion': defineRoute('v3', 'search/suggestion', [
-    searchQuery,
   ]),
   '/solved/search/problem': defineRoute('v3', 'search/problem', [
     searchQuery,
@@ -163,8 +153,6 @@ export const ROUTES = Object.freeze({
   ]),
   '/solved/search/user': defineRoute('v3', 'search/user', [searchQuery, page]),
   '/solved/search/tag': defineRoute('v3', 'search/tag', [searchQuery, page]),
-  '/solved/arena/contests': defineRoute('v3', 'arena/contests'),
-  '/solved/site/stats': defineRoute('v3', 'site/stats'),
 
   '/solved/v4/users/{handle}': defineRoute(
     'v4',

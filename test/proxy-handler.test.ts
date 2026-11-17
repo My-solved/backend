@@ -4,7 +4,9 @@ import test from 'node:test';
 
 import { proxyRequest, UpstreamError } from '../src/proxy-handler.js';
 
-const upstreamUrl = new URL('https://solved.ac/api/v3/site/stats');
+const upstreamUrl = new URL(
+  'https://solved.ac/api/v3/user/show?handle=tourist',
+);
 const v4UpstreamUrl = new URL('https://solved.ac/api/v4/users/tourist');
 
 test('uses a fixed GET request without forwarding caller credentials', async () => {

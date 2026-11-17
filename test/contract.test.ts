@@ -7,25 +7,16 @@ import { ROUTES } from '../src/routes.js';
 const gatewayUrl = (requestTarget: string): URL =>
   new URL(requestTarget, 'http://gateway.invalid');
 
-test('the public surface is limited to 15 v3 and 9 v4 routes', () => {
-  assert.equal(Object.keys(ROUTES).length, 24);
+test('the public surface is limited to 9 v3 and 9 v4 routes', () => {
+  assert.equal(Object.keys(ROUTES).length, 18);
 });
 
 const mappings = [
   ['/solved/user/show?handle=tourist', 'user/show?handle=tourist'],
   [
-    '/solved/user/organizations?handle=tourist',
-    'user/organizations?handle=tourist',
-  ],
-  [
-    '/solved/user/available_badges?handle=tourist',
-    'user/available_badges?handle=tourist',
-  ],
-  [
     '/solved/user/grass?handle=tourist',
     'user/grass?handle=tourist&topic=default',
   ],
-  ['/solved/user/top_100?handle=tourist', 'user/top_100?handle=tourist'],
   [
     '/solved/user/problem_stats?handle=tourist',
     'user/problem_stats?handle=tourist',
@@ -39,15 +30,12 @@ const mappings = [
     'background/show?backgroundId=balloon',
   ],
   ['/solved/badge/show?badgeId=bronze', 'badge/show?badgeId=bronze'],
-  ['/solved/search/suggestion?query=rsa', 'search/suggestion?query=rsa'],
   [
     '/solved/search/problem?query=rsa',
     'search/problem?query=rsa&page=1&sort=solved&direction=descending',
   ],
   ['/solved/search/user?query=rsa', 'search/user?query=rsa&page=1'],
   ['/solved/search/tag?query=rsa', 'search/tag?query=rsa&page=1'],
-  ['/solved/arena/contests', 'arena/contests'],
-  ['/solved/site/stats', 'site/stats'],
 ] as const;
 
 for (const [requestTarget, upstreamTarget] of mappings) {
@@ -206,6 +194,27 @@ test('rejects paths outside the allowlist', () => {
       error.code === 'not_found',
   );
 });
+
+const removedV3Routes = [
+  '/solved/user/organizations?handle=tourist',
+  '/solved/user/available_badges?handle=tourist',
+  '/solved/user/top_100?handle=tourist',
+  '/solved/search/suggestion?query=rsa',
+  '/solved/arena/contests',
+  '/solved/site/stats',
+] as const;
+
+for (const requestTarget of removedV3Routes) {
+  test(`rejects removed v3 route: ${requestTarget}`, () => {
+    assert.throws(
+      () => resolveProxyRequest(gatewayUrl(requestTarget)),
+      (error: unknown) =>
+        error instanceof ContractError &&
+        error.status === 404 &&
+        error.code === 'not_found',
+    );
+  });
+}
 
 test('preserves the upstream problem-search limit response contract', () => {
   const query = 'q'.repeat(101);
