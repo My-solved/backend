@@ -23,7 +23,7 @@ const proxyRequest = (
 ) =>
   proxyUpstream(
     url,
-    { responses, responseCache: 'upstream' },
+    { method: 'GET', responses, responseCache: 'upstream' },
     dependencies,
   );
 
@@ -39,6 +39,7 @@ function bearer(value = 'Bearer caller-token') {
 if (false) {
   // @ts-expect-error Bearer forwarding must always select the no-store variant.
   const invalidPolicy: ProxyRequestPolicy = {
+    method: 'GET',
     responses: responsePolicy,
     responseCache: 'upstream',
     authorization: bearer(),
@@ -107,6 +108,7 @@ test('forwards only a validated typed Bearer value with server credentials', asy
   await proxyUpstream(
     upstreamUrl,
     {
+      method: 'GET',
       responses: responsePolicy,
       authorization: bearer('bearer opaque.token-_~+/='),
       responseCache: 'no-store',
@@ -134,6 +136,7 @@ test('forwards only a validated typed Bearer value with server credentials', asy
 test('rejects an unsafe runtime Bearer/cache combination before fetch', async () => {
   let calls = 0;
   const unsafePolicy = {
+    method: 'GET',
     responses: responsePolicy,
     responseCache: 'upstream',
     authorization: bearer(),
@@ -154,11 +157,64 @@ test('rejects an unsafe runtime Bearer/cache combination before fetch', async ()
   assert.equal(calls, 0);
 });
 
+test('rejects cast-invalid method, body, and cache combinations before fetch', async () => {
+  const unsafePolicies = [
+    { method: 'GET', responses: responsePolicy, responseCache: 'private' },
+    {
+      method: 'GET', responses: responsePolicy, responseCache: 'upstream',
+      requestBody: { kind: 'none' },
+    },
+    {
+      method: 'POST', responses: responsePolicy, responseCache: 'no-store',
+      requestBody: { kind: 'none' },
+    },
+    {
+      method: 'PATCH', responses: responsePolicy, responseCache: 'no-store',
+      authorization: bearer(), requestBody: { kind: 'none' },
+    },
+    {
+      method: 'DELETE', responses: responsePolicy, responseCache: 'no-store',
+      authorization: bearer(), requestBody: { kind: 'json', body: {} },
+    },
+    {
+      method: 'PUT', responses: responsePolicy, responseCache: 'no-store',
+      authorization: bearer(), requestBody: { kind: 'none' },
+    },
+  ];
+  for (const unsafe of unsafePolicies) {
+    let calls = 0;
+    await assert.rejects(
+      proxyUpstream(upstreamUrl, unsafe as unknown as ProxyRequestPolicy, {
+        fetch: async () => { calls += 1; return jsonResponse(); },
+      }),
+      (error: unknown) => error instanceof TypeError &&
+        error.message === 'Invalid proxy request policy',
+    );
+    assert.equal(calls, 0);
+  }
+});
+
+test('does not dispatch a pre-aborted request', async () => {
+  let calls = 0;
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    proxyRequest(upstreamUrl, responsePolicy, {
+      signal: controller.signal,
+      fetch: async () => { calls += 1; return jsonResponse(); },
+    }),
+    (error: unknown) => error instanceof UpstreamError &&
+      error.code === 'upstream_unavailable',
+  );
+  assert.equal(calls, 0);
+});
+
 test('forces no-store and drops ETag for every token-aware response', async () => {
   for (const authorization of [undefined, bearer()]) {
     const actual = await proxyUpstream(
       upstreamUrl,
       {
+        method: 'GET',
         responses: responsePolicy,
         ...(authorization === undefined ? {} : { authorization }),
         responseCache: 'no-store',

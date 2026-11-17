@@ -2,6 +2,7 @@ import { createServer, type Server } from 'node:http';
 import { pathToFileURL } from 'node:url';
 
 import {
+  createExpectationRejectionHandler,
   createRequestHandler,
   DEFAULT_MAX_CONCURRENT_REQUESTS,
 } from './adapters/http/gateway-handler.js';
@@ -43,15 +44,18 @@ export function startServer(): Server {
   );
   const credentials = loadSolvedClientCredentials();
   const protectedCorsOrigins = loadProtectedCorsOrigins();
-  const server = createServer(
-    createRequestHandler({
-      timeoutMs,
-      maxResponseBytes,
-      maxConcurrentRequests,
-      credentials,
-      protectedCorsOrigins,
-    }),
-  );
+  const handlerOptions = {
+    timeoutMs,
+    maxResponseBytes,
+    maxConcurrentRequests,
+    credentials,
+    protectedCorsOrigins,
+  };
+  const server = createServer();
+  server.on('request', createRequestHandler(handlerOptions));
+  const rejectExpectation = createExpectationRejectionHandler(handlerOptions);
+  server.on('checkContinue', rejectExpectation);
+  server.on('checkExpectation', rejectExpectation);
 
   server.requestTimeout = timeoutMs + 5_000;
   server.headersTimeout = Math.min(server.requestTimeout, 15_000);
