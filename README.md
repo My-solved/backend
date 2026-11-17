@@ -1,28 +1,15 @@
 # solved-proxy
 
-`solved-proxy` is a small, stateless gateway between My.solved and the solved.ac
-API. It supports the current `/solved/*` v3 client surface and exposes an
-explicit `/solved/v4/*` allowlist for the official v4 API.
+`solved-proxy` is a small, stateless, credential-safe gateway for the official
+solved.ac v4 API. Each deployment belongs to one registered solved.ac app and
+injects that app's credentials only for reviewed `/solved/v4/*` operations.
 
 The service has no database, cache, login flow, user access token, BOJ
-credential, or runtime package dependency. It accepts only allowlisted public
-`GET` requests. v3 requests go to `https://solved.ac/api/v3/`; v4 requests go to
-`https://solved.ac/api/v4/` with the app's client credentials injected from
-mounted secret files.
+credential, or runtime package dependency. The current surface accepts only
+allowlisted `GET` operations and forwards them to
+`https://solved.ac/api/v4/` with credentials from mounted secret files.
 
-## Supported routes
-
-- `/solved/user/show`
-- `/solved/user/grass`
-- `/solved/user/problem_stats`
-- `/solved/user/tag_ratings`
-- `/solved/background/show`
-- `/solved/badge/show`
-- `/solved/search/problem`
-- `/solved/search/user`
-- `/solved/search/tag`
-
-Official v4 routes:
+## Initial official v4 allowlist
 
 - `/solved/v4/users/{handle}`
 - `/solved/v4/users/{handle}/activity/days`
@@ -34,10 +21,19 @@ Official v4 routes:
 - `/solved/v4/tags/{key}`
 - `/solved/v4/achievements/items/{kind}/{key}`
 
-Arbitrary upstream paths and query parameters are rejected. Request credentials
-and cookies are never forwarded upstream. In particular, caller
+This is an intentionally strict initial subset, not the final v4 surface. New
+operations should be generated or reviewed against the current official OpenAPI
+contract before they enter the allowlist. Arbitrary upstream paths, methods,
+query parameters, and bodies remain rejected. Request credentials and cookies
+are never forwarded upstream. In particular, caller
 `Authorization`, `Cookie`, `x-client-id`, and `x-client-secret` values are
 ignored. `/healthz` is the only health endpoint.
+
+This repository is reusable, but a deployed instance is not a communal public
+relay. Every forwarded request spends the operator's shared solved.ac app quota.
+The default Compose configuration publishes the container port only on
+loopback; any public reverse proxy must apply its own caller policy, request-rate
+limits, and connection limits. CORS is not an access-control mechanism.
 
 ## Develop
 
@@ -109,11 +105,11 @@ Configuration is intentionally small:
 | `SOLVED_CLIENT_ID_FILE` | required | File containing the solved.ac app client ID |
 | `SOLVED_CLIENT_SECRET_FILE` | required | File containing the solved.ac app client secret |
 
-The upstream origins are fixed in code to prevent this service from becoming
-an open proxy. The secret file contents are read once during startup; the
-process refuses to listen if either path is missing, unreadable, empty, or not
-safe to place in an HTTP header. Do not place either credential in a Flutter
-build, Docker image, build argument, Compose environment value, or repository
+The upstream origin is fixed in code to prevent this service from becoming an
+open proxy. The secret file contents are read once during startup; the process
+refuses to listen if either path is missing, unreadable, empty, or not safe to
+place in an HTTP header. Do not place either credential in downloadable client
+code, a Docker image, build argument, Compose environment value, or repository
 file.
 
 ## Run with Docker
@@ -138,25 +134,25 @@ No secret or `.env` file is copied into the image.
 ### Pull a published image
 
 Successful pushes to `main` publish the Linux AMD64 image
-`ghcr.io/my-solved/solved-proxy` to GitHub Container Registry. The workflow
+`ghcr.io/OWNER/solved-proxy` to GitHub Container Registry. The workflow
 creates these tags:
 
 - `latest` and `main` for the latest successful `main` build
 - `sha-<short-commit>` for a commit-traceable build
 
 Container tags are mutable. For production, use the exact
-`ghcr.io/my-solved/solved-proxy@sha256:<digest>` value recorded in the successful
+`ghcr.io/OWNER/solved-proxy@sha256:DIGEST` value recorded in the successful
 workflow summary. This keeps a redeploy on the same published image even if a
 tag moves later. Pull and run it with the existing hardened Compose
 configuration:
 
 ```sh
-SOLVED_PROXY_IMAGE=ghcr.io/my-solved/solved-proxy@sha256:<digest> \
+SOLVED_PROXY_IMAGE=ghcr.io/OWNER/solved-proxy@sha256:DIGEST \
 SOLVED_CLIENT_ID_FILE=/absolute/host/path/client-id \
 SOLVED_CLIENT_SECRET_FILE=/absolute/host/path/client-secret \
   docker compose pull solved-proxy
 
-SOLVED_PROXY_IMAGE=ghcr.io/my-solved/solved-proxy@sha256:<digest> \
+SOLVED_PROXY_IMAGE=ghcr.io/OWNER/solved-proxy@sha256:DIGEST \
 SOLVED_CLIENT_ID_FILE=/absolute/host/path/client-id \
 SOLVED_CLIENT_SECRET_FILE=/absolute/host/path/client-secret \
   docker compose up --no-build --detach solved-proxy
@@ -169,9 +165,9 @@ are not GitHub Actions secrets and are never included in the published image.
 
 ## Deploy behind a reverse proxy
 
-The v3 URLs remain available while My.solved moves its production runtime to
-the official v4 contract. The service itself has no dependency on another
-application backend.
+The service has no dependency on an application backend. Keep it on a private
+network or loopback interface and expose only the reviewed gateway paths through
+an edge that enforces the deployment's caller and abuse policy.
 
 Example Nginx location when the container is published on loopback port 3000:
 

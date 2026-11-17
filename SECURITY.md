@@ -8,7 +8,7 @@ in a public issue.
 
 ## Security boundaries
 
-This gateway accepts only its documented public `GET` routes and query keys. It
+This gateway accepts only its documented `GET` routes and query keys. It
 does not accept an upstream URL or forward caller credentials. The v4 client ID
 and secret are read from the files named by `SOLVED_CLIENT_ID_FILE` and
 `SOLVED_CLIENT_SECRET_FILE`, then injected only into allowlisted v4 upstream
@@ -19,3 +19,9 @@ The solved.ac API response is treated as untrusted input and is limited by a
 request deadline and maximum response size. Redirects are rejected. Only a
 small response-header allowlist is returned; cookies, locations, and internal
 headers are dropped.
+
+Each deployment consumes one operator-owned solved.ac app quota and is not a
+communal anonymous relay. The default Compose configuration publishes the
+container port only on loopback. Operators who expose it publicly must enforce
+caller, request-rate, and connection policy at the edge; permissive CORS does
+not provide access control.

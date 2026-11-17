@@ -1,18 +1,6 @@
 import { findRoute } from './routes.js';
-import type { SolvedApiVersion } from './routes.js';
 
-export const SOLVED_API_V3_BASE_URL = 'https://solved.ac/api/v3/' as const;
-export const SOLVED_API_V4_BASE_URL = 'https://solved.ac/api/v4/' as const;
-
-export interface SolvedApiBaseUrls {
-  readonly v3: string | URL;
-  readonly v4: string | URL;
-}
-
-export const SOLVED_API_BASE_URLS: SolvedApiBaseUrls = Object.freeze({
-  v3: SOLVED_API_V3_BASE_URL,
-  v4: SOLVED_API_V4_BASE_URL,
-});
+export const SOLVED_API_BASE_URL = 'https://solved.ac/api/v4/' as const;
 
 export class ContractError extends Error {
   constructor(
@@ -27,12 +15,11 @@ export class ContractError extends Error {
 
 export interface ResolvedProxyRequest {
   readonly upstreamUrl: URL;
-  readonly apiVersion: SolvedApiVersion;
 }
 
 export function resolveProxyRequest(
   requestUrl: URL,
-  upstreamBaseUrls: SolvedApiBaseUrls = SOLVED_API_BASE_URLS,
+  upstreamBaseUrl: string | URL = SOLVED_API_BASE_URL,
 ): ResolvedProxyRequest {
   const route = findRoute(requestUrl.pathname);
   if (route === undefined) {
@@ -50,10 +37,7 @@ export function resolveProxyRequest(
     }
   }
 
-  const upstreamUrl = new URL(
-    route.upstreamPath,
-    route.apiVersion === 'v4' ? upstreamBaseUrls.v4 : upstreamBaseUrls.v3,
-  );
+  const upstreamUrl = new URL(route.upstreamPath, upstreamBaseUrl);
   for (const parameter of route.query) {
     const values = requestUrl.searchParams.getAll(parameter.name);
     if (values.length > 1) {
@@ -87,5 +71,5 @@ export function resolveProxyRequest(
     upstreamUrl.searchParams.set(parameter.name, value);
   }
 
-  return Object.freeze({ upstreamUrl, apiVersion: route.apiVersion });
+  return Object.freeze({ upstreamUrl });
 }
