@@ -37,6 +37,26 @@ export const EXPECTED_CONTRACT = Object.freeze({
     public: 52,
     user: 28,
   }),
+  accessScopes: Object.freeze({
+    app: 2,
+    open: 1,
+    public: 48,
+    'public:bookmarks': 2,
+    'public:solves': 1,
+    'public:votes': 1,
+    'user:bookmarks': 2,
+    'user:bookmarks.write': 9,
+    'user:collection': 4,
+    'user:profile': 2,
+    'user:profile.personal': 1,
+    'user:rivals': 2,
+    'user:settings': 1,
+    'user:settings.write': 1,
+    'user:solves': 1,
+    'user:standing': 2,
+    'user:votes': 1,
+    'user:wallet': 2,
+  }),
   methodAccess: Object.freeze({
     get: Object.freeze({ open: 1, public: 52, user: 18 }),
     post: Object.freeze({ app: 2, user: 5 }),
@@ -48,6 +68,12 @@ export const EXPECTED_CONTRACT = Object.freeze({
   responses: Object.freeze({ jsonSchema: 163, bodyless204: 2 }),
   operationIds: 0,
   componentSchemas: 1,
+  securityKeys: 0,
+  callbacks: 0,
+  requestReferences: 0,
+  references: Object.freeze({
+    '#/components/schemas/HelpTreeNode': 2,
+  }),
 });
 
 const expectedMethods = new Set(Object.keys(EXPECTED_CONTRACT.methods));
@@ -106,10 +132,54 @@ function assertExactCounts(actual, expected, label) {
   }
 }
 
+function countPropertyOccurrences(value, propertyName) {
+  if (Array.isArray(value)) {
+    return value.reduce(
+      (count, item) => count + countPropertyOccurrences(item, propertyName),
+      0,
+    );
+  }
+  if (!isJsonObject(value)) {
+    return 0;
+  }
+
+  let count = 0;
+  for (const [key, item] of Object.entries(value)) {
+    if (key === propertyName) {
+      count += 1;
+    }
+    count += countPropertyOccurrences(item, propertyName);
+  }
+  return count;
+}
+
+function collectReferenceCounts(value, counts) {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectReferenceCounts(item, counts);
+    }
+    return;
+  }
+  if (!isJsonObject(value)) {
+    return;
+  }
+
+  for (const [key, item] of Object.entries(value)) {
+    if (key === '$ref') {
+      if (typeof item !== 'string') {
+        throw new Error('an OpenAPI reference is not a string');
+      }
+      counts[item] = (counts[item] ?? 0) + 1;
+    }
+    collectReferenceCounts(item, counts);
+  }
+}
+
 function countParameterSchemas(parameterList, counts) {
   if (!Array.isArray(parameterList)) {
     throw new Error('parameters must be an array');
   }
+  let requestReferences = 0;
   for (const parameter of parameterList) {
     assertJsonObject(parameter, 'parameter');
     assertJsonObject(parameter.schema, 'parameter schema');
@@ -117,7 +187,9 @@ function countParameterSchemas(parameterList, counts) {
       throw new Error('an unexpected parameter location is present');
     }
     counts[parameter.in] += 1;
+    requestReferences += countPropertyOccurrences(parameter.schema, '$ref');
   }
+  return requestReferences;
 }
 
 function hasMaterialSample(value) {
@@ -209,11 +281,15 @@ export function validateOpenApiDocument(document) {
   const methodAccess = Object.fromEntries(
     Object.keys(EXPECTED_CONTRACT.methods).map((method) => [method, {}]),
   );
+  const accessScopes = Object.fromEntries(
+    Object.keys(EXPECTED_CONTRACT.accessScopes).map((key) => [key, 0]),
+  );
   const parameters = { path: 0, query: 0 };
   const requestBodies = { json: 0 };
   const responses = { jsonSchema: 0, bodyless204: 0 };
   let operationCount = 0;
   let operationIds = 0;
+  let requestReferences = 0;
 
   for (const [path, pathItem] of pathEntries) {
     if (!path.startsWith('/api/v4/')) {
@@ -221,7 +297,10 @@ export function validateOpenApiDocument(document) {
     }
     assertJsonObject(pathItem, `path item ${path}`);
     if (pathItem.parameters !== undefined) {
-      countParameterSchemas(pathItem.parameters, parameters);
+      requestReferences += countParameterSchemas(
+        pathItem.parameters,
+        parameters,
+      );
     }
 
     for (const [key, operation] of Object.entries(pathItem)) {
@@ -248,19 +327,39 @@ export function validateOpenApiDocument(document) {
       ) {
         throw new Error('an operation has an unexpected access class');
       }
+      const scope = operation['x-access'].scope;
+      const accessKeys = Object.keys(operation['x-access']).sort();
+      const expectedAccessKeys =
+        scope === undefined ? ['class'] : ['class', 'scope'];
+      if (
+        JSON.stringify(accessKeys) !== JSON.stringify(expectedAccessKeys) ||
+        (scope !== undefined &&
+          (typeof scope !== 'string' || scope.length === 0))
+      ) {
+        throw new Error('an operation has an unexpected x-access shape');
+      }
+      const accessScopeKey =
+        scope === undefined ? accessClass : `${accessClass}:${scope}`;
+      if (!Object.hasOwn(accessScopes, accessScopeKey)) {
+        throw new Error('an operation has an unexpected access scope');
+      }
 
       operationCount += 1;
       methods[method] += 1;
       access[accessClass] += 1;
       const crossCount = methodAccess[method];
       crossCount[accessClass] = (crossCount[accessClass] ?? 0) + 1;
+      accessScopes[accessScopeKey] += 1;
 
       if (Object.hasOwn(operation, 'operationId')) {
         operationIds += 1;
       }
 
       if (operation.parameters !== undefined) {
-        countParameterSchemas(operation.parameters, parameters);
+        requestReferences += countParameterSchemas(
+          operation.parameters,
+          parameters,
+        );
       }
 
       if (Object.hasOwn(operation, 'requestBody')) {
@@ -280,6 +379,10 @@ export function validateOpenApiDocument(document) {
         assertJsonObject(
           operation.requestBody.content['application/json'].schema,
           'JSON request body schema',
+        );
+        requestReferences += countPropertyOccurrences(
+          operation.requestBody.content['application/json'].schema,
+          '$ref',
         );
         requestBodies.json += 1;
       }
@@ -311,6 +414,11 @@ export function validateOpenApiDocument(document) {
   }
   assertExactCounts(methods, EXPECTED_CONTRACT.methods, 'methods');
   assertExactCounts(access, EXPECTED_CONTRACT.access, 'access');
+  assertExactCounts(
+    accessScopes,
+    EXPECTED_CONTRACT.accessScopes,
+    'accessScopes',
+  );
   for (const method of Object.keys(EXPECTED_CONTRACT.methodAccess)) {
     assertExactCounts(
       methodAccess[method],
@@ -336,6 +444,29 @@ export function validateOpenApiDocument(document) {
     throw new Error('the component schema count changed');
   }
 
+  if (Object.hasOwn(document.components, 'securitySchemes')) {
+    throw new Error('security schemes are not supported by this contract');
+  }
+  assertJsonObject(document.webhooks, 'webhooks');
+  if (Object.keys(document.webhooks).length !== 0) {
+    throw new Error('webhooks are not supported by this contract');
+  }
+
+  const securityKeys = countPropertyOccurrences(document, 'security');
+  const callbacks = countPropertyOccurrences(document, 'callbacks');
+  if (securityKeys !== EXPECTED_CONTRACT.securityKeys) {
+    throw new Error('the recursive security-key count changed');
+  }
+  if (callbacks !== EXPECTED_CONTRACT.callbacks) {
+    throw new Error('the callback count changed');
+  }
+  if (requestReferences !== EXPECTED_CONTRACT.requestReferences) {
+    throw new Error('request-side references are not supported');
+  }
+  const references = {};
+  collectReferenceCounts(document, references);
+  assertExactCounts(references, EXPECTED_CONTRACT.references, 'references');
+
   assertNoSecretMaterial(document);
 
   return {
@@ -343,12 +474,17 @@ export function validateOpenApiDocument(document) {
     operationCount,
     methods,
     access,
+    accessScopes,
     methodAccess,
     parameters,
     requestBodies,
     responses,
     operationIds,
     componentSchemas,
+    securityKeys,
+    callbacks,
+    requestReferences,
+    references,
   };
 }
 

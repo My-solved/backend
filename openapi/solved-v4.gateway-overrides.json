@@ -1,0 +1,82 @@
+{
+  "version": 1,
+  "snapshotSha256": "312abfb4677fc67d914f6a357ff5b89d170eb65791ecb5d3ab30ab873352125d",
+  "requestObjectUnknownProperties": "reject",
+  "declaredRequestBodyPolicy": "require-when-declared",
+  "globalResponses": [
+    {
+      "status": "429",
+      "mediaTypes": [
+        "application/json"
+      ],
+      "requiredHeaders": [
+        "retry-after"
+      ],
+      "reason": "The official top-level contract documents global rate-limit responses outside operation response maps."
+    }
+  ],
+  "accessClassResponses": [
+    {
+      "accessClass": "user",
+      "status": "401",
+      "mediaTypes": [
+        "application/json"
+      ],
+      "requiredHeaders": [],
+      "reason": "The official top-level access contract guarantees USER_TOKEN_REQUIRED for every user operation."
+    },
+    {
+      "accessClass": "user",
+      "status": "403",
+      "mediaTypes": [
+        "application/json"
+      ],
+      "requiredHeaders": [],
+      "reason": "The official top-level access contract guarantees INSUFFICIENT_SCOPE for every user operation."
+    }
+  ],
+  "operationOverrides": [
+    {
+      "operation": "GET /api/v4/rankings/affiliations/{affiliationId}",
+      "parameterOverrides": [
+        {
+          "in": "path",
+          "name": "affiliationId",
+          "source": {
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "effective": {
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          "policy": "required-non-null-path",
+          "reason": "OpenAPI path parameters must be present and cannot serialize null as a path segment."
+        }
+      ]
+    },
+    {
+      "operation": "POST /api/v4/oauth/revoke",
+      "expectRequestBody": "absent",
+      "runtimeEnabled": false,
+      "policy": "supplement-required",
+      "supplement": "oauth-revoke",
+      "reason": "The source names token only in prose and does not declare a request media type."
+    },
+    {
+      "operation": "POST /api/v4/oauth/token",
+      "expectRequestBody": "absent",
+      "runtimeEnabled": false,
+      "policy": "supplement-required",
+      "supplement": "oauth-token",
+      "reason": "The source describes form-or-JSON grant bodies in prose without a requestBody schema."
+    }
+  ]
+}

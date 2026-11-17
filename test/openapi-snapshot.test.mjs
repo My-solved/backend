@@ -176,6 +176,41 @@ test('snapshot contains the complete expected method and access catalog', async 
   assert.equal(Object.keys(document.components.schemas).length, 1);
 });
 
+test('snapshot locks custom access, security, callback, and reference boundaries', async () => {
+  const { document } = await loadSnapshot();
+  const metrics = validateOpenApiDocument(document);
+
+  assert.deepEqual(metrics.accessScopes, {
+    app: 2,
+    open: 1,
+    public: 48,
+    'public:bookmarks': 2,
+    'public:solves': 1,
+    'public:votes': 1,
+    'user:bookmarks': 2,
+    'user:bookmarks.write': 9,
+    'user:collection': 4,
+    'user:profile': 2,
+    'user:profile.personal': 1,
+    'user:rivals': 2,
+    'user:settings': 1,
+    'user:settings.write': 1,
+    'user:solves': 1,
+    'user:standing': 2,
+    'user:votes': 1,
+    'user:wallet': 2,
+  });
+  assert.equal(metrics.securityKeys, 0);
+  assert.equal(metrics.callbacks, 0);
+  assert.equal(metrics.requestReferences, 0);
+  assert.deepEqual(metrics.references, {
+    '#/components/schemas/HelpTreeNode': 2,
+  });
+  assert.equal(document.security, undefined);
+  assert.equal(document.components.securitySchemes, undefined);
+  assert.deepEqual(document.webhooks, {});
+});
+
 test('source transport and document validation fail closed', async () => {
   assert.doesNotThrow(() => validateJsonContentType('application/json'));
   assert.doesNotThrow(() =>
@@ -211,6 +246,20 @@ test('source transport and document validation fail closed', async () => {
     { url: PRODUCTION_SERVER_URL },
   ];
   assert.throws(() => validateOpenApiDocument(operationServerOverride));
+
+  const withSecurity = structuredClone(document);
+  withSecurity.paths['/api/v4/health'].get.security = [];
+  assert.throws(() => validateOpenApiDocument(withSecurity));
+
+  const withCallbacks = structuredClone(document);
+  withCallbacks.paths['/api/v4/health'].get.callbacks = {};
+  assert.throws(() => validateOpenApiDocument(withCallbacks));
+
+  const withExternalReference = structuredClone(document);
+  withExternalReference.components.schemas.HelpTreeNode.properties = {
+    external: { $ref: 'https://example.invalid/schema.json' },
+  };
+  assert.throws(() => validateOpenApiDocument(withExternalReference));
 });
 
 test('offline verification rejects checksum and canonicalization drift', async () => {

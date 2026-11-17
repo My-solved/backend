@@ -76,6 +76,8 @@ Updating is a deliberate, networked maintenance operation:
 npm run openapi:update
 npm run openapi:check
 git diff -- openapi/
+npm run openapi:types:update
+npm run openapi:operations:update
 npm test
 ```
 
@@ -133,6 +135,49 @@ reserved for the reviewed runtime operation manifest. The OAuth token and
 revocation bodies intentionally remain `never` because the official document
 has no schemas for them. A later reviewed supplement must model those gaps
 without editing or disguising the official generated contract.
+
+### Generated operation manifest
+
+`src/generated/v4-operations.ts` is the pure-data runtime intake contract for
+all 83 official operations. It is keyed by `METHOD /api/v4/path` and records
+only fixed upstream/gateway templates, access class and scope, reviewed request
+schemas, request-body policy, and allowed response status/media metadata. It
+does not contain response DTOs and does not make any route reachable by itself.
+
+The generated file combines the immutable official snapshot with the narrowly
+reviewed policies in `openapi/solved-v4.gateway-overrides.json`. The overlay is
+bound to the exact snapshot SHA-256 and currently makes four source gaps
+explicit:
+
+- every declared JSON body is required by the gateway even though all seven
+  source `requestBody` objects omit `required`; an absent body is not `{}`;
+- JSON request objects reject unknown properties, including the six source
+  schemas that otherwise leave them open;
+- the malformed nullable/optional `affiliationId` path parameter is required
+  and non-null for gateway serialization;
+- global `429`/`Retry-After` and user-operation `401`/`403` responses described
+  by the top-level official contract are merged into operation response policy.
+
+OAuth token and revocation remain runtime-disabled with
+`supplement-required`; their prose-only bodies are not guessed here. Defaults
+from OpenAPI are retained as `annotationDefault` metadata and are never
+injected into a request.
+
+Regenerate or verify the manifest entirely from committed local files:
+
+```sh
+npm run openapi:operations:update
+npm run openapi:operations:check
+git diff -- openapi/solved-v4.gateway-overrides.json \
+  src/generated/v4-operations.ts
+```
+
+Generation fails closed on new schema keywords, regexes, media types,
+references, parameter serialization forms, access scopes, callbacks, webhooks,
+or unused/stale override targets. The current normalized grammar covers 151
+request-schema roots and 199 recursive schema nodes. Runtime request validators
+must count string length by Unicode code point, accept only canonical safe
+integers, never coerce the string `null`, and never apply annotation defaults.
 
 ## Load and smoke verification
 
