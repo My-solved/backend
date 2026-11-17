@@ -292,16 +292,26 @@ load testing requires separate solved.ac approval.
 
 Configuration is intentionally small:
 
-| Variable | Default | Purpose |
-| --- | ---: | --- |
-| `HOST` | `0.0.0.0` | Listen address |
-| `PORT` | `3000` | Listen port |
-| `REQUEST_TIMEOUT_MS` | `8000` | solved.ac request deadline |
-| `MAX_RESPONSE_BYTES` | `5242880` | Maximum upstream response size |
-| `MAX_CONCURRENT_REQUESTS` | `8` | Concurrent non-health request cap |
-| `SOLVED_PROTECTED_CORS_ORIGINS` | empty | Comma-separated exact browser origins allowed to call token-aware and OAuth operations |
-| `SOLVED_CLIENT_ID_FILE` | required | File containing the solved.ac app client ID |
-| `SOLVED_CLIENT_SECRET_FILE` | required | File containing the solved.ac app client secret |
+| Variable | Default | Allowed values | Purpose |
+| --- | ---: | --- | --- |
+| `HOST` | `0.0.0.0` | non-empty, trimmed listen address (at most 253 bytes) | Listen address |
+| `PORT` | `3000` | `1`–`65535` | Listen port |
+| `REQUEST_TIMEOUT_MS` | `8000` | `1`–`10000` | solved.ac request deadline |
+| `MAX_RESPONSE_BYTES` | `5242880` | `1`–`5242880` | Maximum upstream response size |
+| `MAX_CONCURRENT_REQUESTS` | `8` | `1`–`8` | Concurrent non-health request cap |
+| `SOLVED_PROTECTED_CORS_ORIGINS` | empty | canonical origin list | Comma-separated exact browser origins allowed to call token-aware and OAuth operations |
+| `SOLVED_CLIENT_ID_FILE` | required | readable file path | File containing the solved.ac app client ID |
+| `SOLVED_CLIENT_SECRET_FILE` | required | readable file path | File containing the solved.ac app client secret |
+
+Omitting a listen or numeric variable selects its reviewed default. Defining
+`HOST` with an empty, surrounding-whitespace, control-character, or oversized
+value stops startup. Defining a numeric variable with an empty, non-canonical,
+non-integer, zero, negative, unsafe, or out-of-range value also stops startup;
+configuration errors never silently fall back. The
+production response, concurrency, and timeout defaults are also their reviewed
+upper bounds for the Compose resource profile. Lower them when a deployment
+needs a stricter limit. Raising capacity requires reviewing the container memory
+limit, shutdown grace, and bounded load evidence together in a code change.
 
 The upstream origin is fixed in code to prevent this service from becoming an
 open proxy. The configuration files are read once during startup; the process
