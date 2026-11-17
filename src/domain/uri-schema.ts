@@ -75,6 +75,7 @@ export function validateUriValue(
     case 'boolean':
     case 'array':
     case 'object':
+    case 'oneOf':
       return false;
   }
 }
@@ -92,6 +93,7 @@ export function assertUriSchemaSupported(schema: V4RequestSchema): void {
     case 'boolean':
     case 'array':
     case 'object':
+    case 'oneOf':
       throw new Error('URI parameter uses an unsupported schema kind');
   }
 }

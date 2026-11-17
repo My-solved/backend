@@ -10,7 +10,7 @@ generated from the reviewed operation manifest and contains exactly 81 v4
 operations: all 71 `GET` operations plus the ten documented user mutations
 (`POST` 5, `PATCH` 3, `DELETE` 2). Fixed `/solved/v4/*` templates map only to
 their corresponding `https://solved.ac/api/v4/*` templates, with app
-credentials read from mounted secret files.
+identifier and secret read from mounted configuration files.
 
 All 28 user operations require exactly one RFC 6750 Bearer value. The four
 public operations that carry a scope (`solves`, `bookmarks`, or `votes`) accept
@@ -164,8 +164,9 @@ or runtime-validate upstream responses against them. `RequestBody` describes a
 declared payload shape but does not decide whether a body is required; that is
 reserved for the reviewed runtime operation manifest. The OAuth token and
 revocation bodies intentionally remain `never` because the official document
-has no schemas for them. A later reviewed supplement must model those gaps
-without editing or disguising the official generated contract.
+has no schemas for them. Gateway-only request contracts are generated from a
+separate reviewed supplement so this official type surface is not edited or
+disguised.
 
 ### Generated operation manifest
 
@@ -190,10 +191,21 @@ explicit:
 - global `429`/`Retry-After` and user-operation `401`/`403` responses described
   by the top-level official contract are merged into operation response policy.
 
-OAuth token and revocation remain runtime-disabled with
-`supplement-required`; their prose-only bodies are not guessed here. Defaults
-from OpenAPI are retained as `annotationDefault` metadata and are never
-injected into a request.
+The separate `openapi/solved-v4.request-supplements.json` is bound to the same
+snapshot plus the SHA-256 of each source description. It models the two OAuth
+bodies without changing the raw OpenAPI: token has strict, exclusive
+authorization-code and refresh-token variants over the documented JSON or
+form media types; revoke has the documented `token` over the form media type
+required by its normative RFC 7009 reference. Opaque values have no invented
+field maximum; the runtime-wide body cap remains authoritative. Both operations
+stay runtime-disabled with `implementation-required` until their dedicated
+parser and sensitive transport path are reviewed.
+
+The supplement also makes the activation boundary explicit: exact-origin
+browser CORS, `no-store` plus `Pragma: no-cache`, no ETag, one upstream attempt,
+server-owned app headers, and rejected caller Authorization. Defaults from
+OpenAPI are retained as `annotationDefault` metadata and are never injected
+into a request.
 
 `src/domain/request-json-schema.ts` validates parsed JSON values against this
 normalized request grammar, including strict object keys and every array,
@@ -208,15 +220,18 @@ Regenerate or verify the manifest entirely from committed local files:
 npm run openapi:operations:update
 npm run openapi:operations:check
 git diff -- openapi/solved-v4.gateway-overrides.json \
+  openapi/solved-v4.request-supplements.json \
   src/generated/v4-operations.ts
 ```
 
 Generation fails closed on new schema keywords, regexes, media types,
 references, parameter serialization forms, access scopes, callbacks, webhooks,
-or unused/stale override targets. The current normalized grammar covers 151
-request-schema roots and 199 recursive schema nodes. Runtime request validators
-must count string length by Unicode code point, accept only canonical safe
-integers, never coerce the string `null`, and never apply annotation defaults.
+or unused/stale override and supplement targets. The official normalized
+grammar covers 151 request-schema roots and 199 recursive schema nodes; the
+separately counted OAuth supplement covers 2 roots and 12 nodes. Runtime request
+validators must count string length by Unicode code point, accept only canonical
+safe integers, enforce exclusive unions, never coerce the string `null`, and
+never apply annotation defaults.
 
 ## Load and smoke verification
 
@@ -274,11 +289,13 @@ Configuration is intentionally small:
 | `SOLVED_CLIENT_SECRET_FILE` | required | File containing the solved.ac app client secret |
 
 The upstream origin is fixed in code to prevent this service from becoming an
-open proxy. The secret file contents are read once during startup; the process
+open proxy. The configuration files are read once during startup; the process
 refuses to listen if either path is missing, unreadable, empty, or not safe to
-place in an HTTP header. Do not place either credential in downloadable client
-code, a Docker image, build argument, Compose environment value, or repository
-file.
+place in an HTTP header. The client ID is a public app identifier and may appear
+in a downloadable OAuth client's authorization request, but this gateway still
+loads its configured value and never trusts caller-supplied `x-client-id`. The
+client secret is server-only: never place it in downloadable client code, a
+Docker image, build argument, Compose environment value, or repository file.
 
 `SOLVED_PROTECTED_CORS_ORIGINS` accepts at most 32 canonical `http://` or
 `https://` origins with no path, query, fragment, wildcard, credentials, or
@@ -296,8 +313,9 @@ SOLVED_CLIENT_SECRET_FILE=/absolute/host/path/client-secret \
 curl --fail http://127.0.0.1:3000/healthz
 ```
 
-Those host files should be readable only by the deployment account. Compose
-mounts them at `/run/secrets/solved_client_id` and
+The client-secret host file must be readable only by the deployment account;
+using the same permissions for the client-ID file keeps deployment handling
+uniform. Compose mounts them at `/run/secrets/solved_client_id` and
 `/run/secrets/solved_client_secret`; only those in-container paths are exposed
 through the process environment.
 
@@ -335,8 +353,9 @@ SOLVED_CLIENT_SECRET_FILE=/absolute/host/path/client-secret \
 
 New GHCR packages are private by default. Before pulling, either make the
 package public or log in to `ghcr.io` with an account and token that have read
-access. The solved.ac client credentials remain runtime-only host files; they
-are not GitHub Actions secrets and are never included in the published image.
+access. This gateway's solved.ac client configuration remains in runtime host
+files. In particular, the client secret is not a GitHub Actions secret and is
+never included in the published image.
 
 ## Deploy behind a reverse proxy
 

@@ -51,13 +51,19 @@ export interface V4AnyOfSchema extends V4SchemaBase {
   readonly options: readonly V4RequestSchema[];
 }
 
+export interface V4OneOfSchema extends V4SchemaBase {
+  readonly kind: 'oneOf';
+  readonly options: readonly V4RequestSchema[];
+}
+
 export type V4RequestSchema =
   | V4StringSchema
   | V4IntegerSchema
   | V4BooleanSchema
   | V4ArraySchema
   | V4ObjectSchema
-  | V4AnyOfSchema;
+  | V4AnyOfSchema
+  | V4OneOfSchema;
 
 export interface V4OperationParameter {
   readonly name: string;
@@ -67,11 +73,41 @@ export interface V4OperationParameter {
   readonly gatewayOverride?: 'required-non-null-path';
 }
 
-export interface V4RequestBodyContract {
+export interface V4OpenApiRequestBodyContract {
+  readonly source: 'openapi';
   readonly declaredRequired: boolean;
   readonly effectiveRequired: true;
   readonly mediaType: 'application/json';
   readonly schema: V4RequestSchema;
+}
+
+export type V4OAuthSupplement = 'oauth-token' | 'oauth-revoke';
+
+export interface V4SupplementRequestBodyContract {
+  readonly source: 'gateway-supplement';
+  readonly supplement: V4OAuthSupplement;
+  readonly sourceDescriptionSha256: string;
+  readonly effectiveRequired: true;
+  readonly mediaTypes: readonly (
+    | 'application/json'
+    | 'application/x-www-form-urlencoded'
+  )[];
+  readonly canonicalMediaType: 'application/x-www-form-urlencoded';
+  readonly schema: V4RequestSchema;
+}
+
+export type V4RequestBodyContract =
+  | V4OpenApiRequestBodyContract
+  | V4SupplementRequestBodyContract;
+
+export interface V4SensitiveOperationPolicy {
+  readonly browserCors: 'exact-origin';
+  readonly responseCache: 'no-store';
+  readonly responsePragma: 'no-cache';
+  readonly forwardEtag: false;
+  readonly upstreamAttempts: 1;
+  readonly appAuthentication: 'server-owned-x-client-headers';
+  readonly callerAuthorization: 'reject';
 }
 
 export interface V4ResponseContract {
@@ -88,8 +124,9 @@ export type V4RuntimePolicy =
     }
   | {
       readonly enabled: false;
-      readonly policy: 'supplement-required';
-      readonly supplement: 'oauth-token' | 'oauth-revoke';
+      readonly policy: 'implementation-required';
+      readonly supplement: V4OAuthSupplement;
+      readonly requiredSecurity: V4SensitiveOperationPolicy;
     };
 
 export interface V4OperationContract {

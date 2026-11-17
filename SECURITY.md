@@ -26,8 +26,8 @@ malformed JSON, and decoded duplicate keys are rejected before the value is
 validated against the generated request schema. The other three mutations
 reject a body or media type. Caller Content-Length and Content-Encoding are
 never forwarded. Framed requests rejected before consumption receive
-`Connection: close`; unsupported
-`Expect` handshakes receive `417` without an interim `100 Continue`. Mutations
+`Connection: close`; unsupported `Expect` handshakes receive `417` without an
+interim `100 Continue`. Mutations
 are sent once with redirects disabled and are never retried.
 
 The gateway does not accept an upstream URL, app-access operations, or OAuth.
@@ -35,8 +35,19 @@ Raw request targets and decoded URI components are bounded and validated before
 routing; upstream paths are built only from fixed `/api/v4` templates. The v4
 client ID and secret are read from the files named by `SOLVED_CLIENT_ID_FILE` and
 `SOLVED_CLIENT_SECRET_FILE`, then injected only into allowlisted v4 upstream
-requests. They must be mounted at runtime and must never be copied into the
-image, committed, sent by a client, or placed in a build argument.
+requests. The client ID is a public app identifier that a future downloadable
+OAuth client may send to the authorization endpoint; the proxy still ignores
+caller-supplied `x-client-id` and `x-client-secret` and uses its configured
+values upstream. The client secret is server-only and must never be copied into
+the image, committed, sent by a client, or placed in a build argument.
+
+The OAuth token and revoke routes remain disabled, but their reviewed request
+supplements are already fail-closed around the future activation boundary. The
+generated contract requires exact-origin browser CORS, `Cache-Control:
+no-store`, `Pragma: no-cache`, no ETag, one upstream attempt, server-owned app
+authentication, and rejection of caller Authorization. A future runtime cannot
+reclassify these app-class routes as wildcard-public merely because they carry
+no user Bearer header.
 
 The solved.ac API response is treated as untrusted input and is limited by a
 request deadline and maximum response size. Redirects, undeclared statuses,

@@ -9,20 +9,29 @@ import {
 } from '../tool/openapi-contract.mjs';
 import {
   EXPECTED_REQUEST_SCHEMA_METRICS,
+  EXPECTED_SUPPLEMENT_SCHEMA_METRICS,
   GATEWAY_OVERRIDES_PATH,
   OPERATION_MANIFEST_PATH,
+  REQUEST_SUPPLEMENTS_PATH,
   generateOperationManifest,
   normalizeRequestSchema,
   renderOperationManifest,
   validateGatewayOverrides,
+  validateRequestSupplements,
 } from '../tool/generate-v4-operation-manifest.mjs';
 
 async function loadInputs() {
-  const [snapshotBytes, snapshotManifestBytes, overrideBytes] =
+  const [
+    snapshotBytes,
+    snapshotManifestBytes,
+    overrideBytes,
+    supplementBytes,
+  ] =
     await Promise.all([
       readFile(SNAPSHOT_PATH),
       readFile(MANIFEST_PATH),
       readFile(GATEWAY_OVERRIDES_PATH),
+      readFile(REQUEST_SUPPLEMENTS_PATH),
     ]);
   const { manifest } = checkSnapshotBytes(
     snapshotBytes,
@@ -31,15 +40,17 @@ async function loadInputs() {
   return {
     document: JSON.parse(snapshotBytes.toString('utf8')),
     overrides: JSON.parse(overrideBytes.toString('utf8')),
+    supplements: JSON.parse(supplementBytes.toString('utf8')),
     snapshotSha256: manifest.snapshotSha256,
   };
 }
 
 test('generator emits the committed deterministic 83-operation manifest', async () => {
-  const { document, overrides, snapshotSha256 } = await loadInputs();
+  const { document, overrides, supplements, snapshotSha256 } = await loadInputs();
   const generated = generateOperationManifest(
     document,
     overrides,
+    supplements,
     snapshotSha256,
   );
   const expected = renderOperationManifest(
@@ -63,6 +74,10 @@ test('generator emits the committed deterministic 83-operation manifest', async 
   assert.deepEqual(
     generated.requestMetrics,
     EXPECTED_REQUEST_SCHEMA_METRICS,
+  );
+  assert.deepEqual(
+    generated.supplementMetrics,
+    EXPECTED_SUPPLEMENT_SCHEMA_METRICS,
   );
   assert.equal(renderOperationManifest(generated.manifest, snapshotSha256), expected);
   assert.equal(committed, expected);
@@ -93,13 +108,18 @@ test('request schema grammar rejects unreviewed keywords and patterns', () => {
 });
 
 test('generator rejects request references and unreviewed media types', async () => {
-  const { document, overrides, snapshotSha256 } = await loadInputs();
+  const { document, overrides, supplements, snapshotSha256 } = await loadInputs();
   const withReference = structuredClone(document);
   const problemQuery = withReference.paths['/api/v4/problems'].get.parameters
     .find((parameter) => parameter.name === 'q');
   problemQuery.schema = { $ref: '#/components/schemas/HelpTreeNode' };
   assert.throws(
-    () => generateOperationManifest(withReference, overrides, snapshotSha256),
+    () => generateOperationManifest(
+      withReference,
+      overrides,
+      supplements,
+      snapshotSha256,
+    ),
     /request-side references are not supported/u,
   );
 
@@ -109,7 +129,12 @@ test('generator rejects request references and unreviewed media types', async ()
     'text/plain': { schema: { type: 'string' } },
   };
   assert.throws(
-    () => generateOperationManifest(withMedia, overrides, snapshotSha256),
+    () => generateOperationManifest(
+      withMedia,
+      overrides,
+      supplements,
+      snapshotSha256,
+    ),
     /request body media type|unexpected request body/u,
   );
 });
@@ -148,8 +173,88 @@ test('reviewed overrides reject stale, duplicate, and unknown targets', async ()
   );
 });
 
+test('OAuth request supplements are snapshot and source-description bound', async () => {
+  const { document, supplements, snapshotSha256 } = await loadInputs();
+  const reviewed = validateRequestSupplements(
+    supplements,
+    document,
+    snapshotSha256,
+  );
+  assert.deepEqual(reviewed.metrics, EXPECTED_SUPPLEMENT_SCHEMA_METRICS);
+  assert.deepEqual([...reviewed.byOperation.keys()], [
+    'POST /api/v4/oauth/revoke',
+    'POST /api/v4/oauth/token',
+  ]);
+});
+
+test('OAuth request supplements fail closed on source, shape, and security drift', async () => {
+  const { document, supplements, snapshotSha256 } = await loadInputs();
+  const cases = [];
+
+  const stale = structuredClone(supplements);
+  stale.snapshotSha256 = '0'.repeat(64);
+  cases.push([stale, document, /reviewed snapshot/u]);
+
+  const reordered = structuredClone(supplements);
+  reordered.operations.reverse();
+  cases.push([reordered, document, /changed or are not sorted/u]);
+
+  const duplicate = structuredClone(supplements);
+  duplicate.operations[1] = structuredClone(duplicate.operations[0]);
+  cases.push([duplicate, document, /changed or are not sorted/u]);
+
+  const unknownField = structuredClone(supplements);
+  unknownField.operations[0].unreviewed = true;
+  cases.push([unknownField, document, /unexpected fields/u]);
+
+  const wrongMedia = structuredClone(supplements);
+  wrongMedia.operations[0].mediaTypes = ['application/json'];
+  cases.push([wrongMedia, document, /media or body policy/u]);
+
+  const unsafeCors = structuredClone(supplements);
+  unsafeCors.operations[1].security.browserCors = 'wildcard';
+  cases.push([unsafeCors, document, /security policy no longer matches/u]);
+
+  const changedGrant = structuredClone(supplements);
+  changedGrant.operations[1].schema.oneOf[0].properties.grant_type.enum = [
+    'refresh_token',
+  ];
+  cases.push([changedGrant, document, /schema no longer matches/u]);
+
+  const changedDescriptionDocument = structuredClone(document);
+  changedDescriptionDocument.paths['/api/v4/oauth/token'].post.description +=
+    ' changed';
+  cases.push([
+    supplements,
+    changedDescriptionDocument,
+    /source description changed/u,
+  ]);
+
+  const sourceBodyDocument = structuredClone(document);
+  sourceBodyDocument.paths['/api/v4/oauth/revoke'].post.requestBody = {
+    content: {
+      'application/x-www-form-urlencoded': {
+        schema: { type: 'object', properties: {} },
+      },
+    },
+  };
+  cases.push([supplements, sourceBodyDocument, /source boundary changed/u]);
+
+  for (const [candidate, candidateDocument, pattern] of cases) {
+    assert.throws(
+      () =>
+        validateRequestSupplements(
+          candidate,
+          candidateDocument,
+          snapshotSha256,
+        ),
+      pattern,
+    );
+  }
+});
+
 test('affiliation override is bound to the exact anomalous source shape', async () => {
-  const { document, overrides, snapshotSha256 } = await loadInputs();
+  const { document, overrides, supplements, snapshotSha256 } = await loadInputs();
   const changed = structuredClone(document);
   const affiliation = changed.paths[
     '/api/v4/rankings/affiliations/{affiliationId}'
@@ -158,7 +263,12 @@ test('affiliation override is bound to the exact anomalous source shape', async 
   affiliation.schema = { type: 'integer' };
 
   assert.throws(
-    () => generateOperationManifest(changed, overrides, snapshotSha256),
+    () => generateOperationManifest(
+      changed,
+      overrides,
+      supplements,
+      snapshotSha256,
+    ),
     /affiliation override source/u,
   );
 });

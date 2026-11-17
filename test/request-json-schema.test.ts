@@ -115,12 +115,120 @@ const mutationBodyFixtures = [
 
 test('fixtures cover exactly all seven official mutation body schemas', () => {
   const bodyOperationKeys = Object.entries(V4_OPERATION_MANIFEST)
-    .filter(([, operation]) => operation.requestBody !== null)
+    .filter(
+      ([, operation]) => operation.requestBody?.source === 'openapi',
+    )
     .map(([key]) => key)
     .sort();
   assert.deepEqual(
     mutationBodyFixtures.map(({ key }) => key).sort(),
     bodyOperationKeys,
+  );
+});
+
+test('validates the reviewed OAuth supplement body contracts', () => {
+  const token = V4_OPERATION_MANIFEST['POST /api/v4/oauth/token'].requestBody;
+  const revoke = V4_OPERATION_MANIFEST['POST /api/v4/oauth/revoke'].requestBody;
+  assert.equal(token?.source, 'gateway-supplement');
+  assert.equal(revoke?.source, 'gateway-supplement');
+  if (token === null || revoke === null) {
+    throw new Error('missing OAuth supplement body');
+  }
+
+  const verifier = 'A'.repeat(43);
+  for (const value of [
+    {
+      grant_type: 'authorization_code',
+      code: 'opaque-code',
+      redirect_uri: 'my.solved://oauth/callback?exact=yes',
+      code_verifier: verifier,
+    },
+    {
+      grant_type: 'authorization_code',
+      code: 'opaque-code',
+      redirect_uri: 'my.solved://oauth/callback',
+      code_verifier: '~'.repeat(128),
+    },
+    {
+      grant_type: 'refresh_token',
+      refresh_token: 'opaque-refresh-token',
+    },
+    {
+      grant_type: 'refresh_token',
+      refresh_token: 'opaque-refresh-token',
+      scope: 'profile offline.access',
+    },
+  ]) {
+    assert.equal(validateJsonValue(value, token.schema), true);
+  }
+  for (const value of [
+    {},
+    { grant_type: 'authorization_code' },
+    {
+      grant_type: 'authorization_code',
+      code: 'opaque-code',
+      redirect_uri: 'my.solved://oauth/callback',
+      code_verifier: 'A'.repeat(42),
+    },
+    {
+      grant_type: 'authorization_code',
+      code: 'opaque-code',
+      redirect_uri: 'my.solved://oauth/callback',
+      code_verifier: 'A'.repeat(129),
+    },
+    {
+      grant_type: 'authorization_code',
+      code: 'opaque-code',
+      redirect_uri: 'my.solved://oauth/callback',
+      code_verifier: `${'A'.repeat(42)}!`,
+    },
+    {
+      grant_type: 'refresh_token',
+      refresh_token: 'opaque-refresh-token',
+      code: 'cross-variant-field',
+    },
+    {
+      grant_type: 'refresh_token',
+      refresh_token: 'opaque-refresh-token',
+      scope: 'profile  offline.access',
+    },
+    {
+      grant_type: 'refresh_token',
+      refresh_token: 'opaque-refresh-token',
+      scope: ' profile',
+    },
+    {
+      grant_type: 'refresh_token',
+      refresh_token: 'opaque-refresh-token',
+      scope: 'profile ',
+    },
+    {
+      grant_type: 'refresh_token',
+      refresh_token: 'opaque-refresh-token',
+      scope: 'pro"file',
+    },
+    {
+      grant_type: 'refresh_token',
+      refresh_token: 'opaque-refresh-token',
+      scope: 'pro\\file',
+    },
+    {
+      grant_type: 'refresh_token',
+      refresh_token: '',
+    },
+  ]) {
+    assert.equal(validateJsonValue(value, token.schema), false);
+  }
+
+  assert.equal(validateJsonValue({ token: 'opaque-token' }, revoke.schema), true);
+  assert.equal(validateJsonValue({}, revoke.schema), false);
+  assert.equal(validateJsonValue({ token: '' }, revoke.schema), false);
+  assert.equal(
+    validateJsonValue(
+      { token: 'opaque-token', token_type_hint: 'access_token' },
+      revoke.schema,
+    ),
+    false,
   );
 });
 
@@ -190,6 +298,17 @@ test('JSON validation handles null, anyOf, Unicode length, and safe integers', (
     ],
   };
   assert.equal(validateJsonValue(null, nullableAnyOf), true);
+
+  const exclusive: V4RequestSchema = {
+    kind: 'oneOf',
+    nullable: false,
+    options: [
+      { kind: 'integer', nullable: false, minimum: 0 },
+      { kind: 'integer', nullable: false, minimum: 1 },
+    ],
+  };
+  assert.equal(validateJsonValue(0, exclusive), true);
+  assert.equal(validateJsonValue(1, exclusive), false);
 
   const oneCodePoint: V4RequestSchema = {
     kind: 'string',

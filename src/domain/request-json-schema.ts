@@ -32,6 +32,7 @@ function nullableEnumAllowsNull(schema: V4RequestSchema): boolean {
     case 'array':
     case 'object':
     case 'anyOf':
+    case 'oneOf':
       return true;
   }
   return unsupportedSchema(schema);
@@ -148,10 +149,14 @@ export function validateJsonValue(
   schema: V4RequestSchema,
 ): value is JsonValue {
   if (value === null) {
-    if (schema.kind === 'anyOf') {
+    if (schema.kind === 'anyOf' || schema.kind === 'oneOf') {
       return (
         schema.nullable ||
-        schema.options.some((option) => validateJsonValue(null, option))
+        (schema.kind === 'anyOf'
+          ? schema.options.some((option) => validateJsonValue(null, option))
+          : schema.options.filter((option) =>
+              validateJsonValue(null, option),
+            ).length === 1)
       );
     }
     return nullableEnumAllowsNull(schema);
@@ -169,6 +174,12 @@ export function validateJsonValue(
       return typeof value === 'object' && validateObject(value, schema);
     case 'anyOf':
       return schema.options.some((option) => validateJsonValue(value, option));
+    case 'oneOf':
+      return (
+        schema.options.filter((option) =>
+          validateJsonValue(value, option),
+        ).length === 1
+      );
   }
   return unsupportedSchema(schema);
 }
