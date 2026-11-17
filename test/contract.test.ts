@@ -7,48 +7,11 @@ import { ROUTES } from '../src/routes.js';
 const gatewayUrl = (requestTarget: string): URL =>
   new URL(requestTarget, 'http://gateway.invalid');
 
-test('the public surface is limited to 9 v3 and 9 v4 routes', () => {
-  assert.equal(Object.keys(ROUTES).length, 18);
+test('the initial official v4 surface is limited to 9 routes', () => {
+  assert.equal(Object.keys(ROUTES).length, 9);
 });
 
 const mappings = [
-  ['/solved/user/show?handle=tourist', 'user/show?handle=tourist'],
-  [
-    '/solved/user/grass?handle=tourist',
-    'user/grass?handle=tourist&topic=default',
-  ],
-  [
-    '/solved/user/problem_stats?handle=tourist',
-    'user/problem_stats?handle=tourist',
-  ],
-  [
-    '/solved/user/tag_ratings?handle=tourist',
-    'user/tag_ratings?handle=tourist',
-  ],
-  [
-    '/solved/background/show?backgroundId=balloon',
-    'background/show?backgroundId=balloon',
-  ],
-  ['/solved/badge/show?badgeId=bronze', 'badge/show?badgeId=bronze'],
-  [
-    '/solved/search/problem?query=rsa',
-    'search/problem?query=rsa&page=1&sort=solved&direction=descending',
-  ],
-  ['/solved/search/user?query=rsa', 'search/user?query=rsa&page=1'],
-  ['/solved/search/tag?query=rsa', 'search/tag?query=rsa&page=1'],
-] as const;
-
-for (const [requestTarget, upstreamTarget] of mappings) {
-  test(`maps ${requestTarget}`, () => {
-    const { upstreamUrl, apiVersion } = resolveProxyRequest(
-      gatewayUrl(requestTarget),
-    );
-    assert.equal(apiVersion, 'v3');
-    assert.equal(upstreamUrl.href, `https://solved.ac/api/v3/${upstreamTarget}`);
-  });
-}
-
-const v4Mappings = [
   ['/solved/v4/users/tourist', 'users/tourist'],
   [
     '/solved/v4/users/tourist/activity/days?from=2026-01-01&to=2026-11-17',
@@ -78,12 +41,9 @@ const v4Mappings = [
   ],
 ] as const;
 
-for (const [requestTarget, upstreamTarget] of v4Mappings) {
-  test(`maps v4 route ${requestTarget}`, () => {
-    const { upstreamUrl, apiVersion } = resolveProxyRequest(
-      gatewayUrl(requestTarget),
-    );
-    assert.equal(apiVersion, 'v4');
+for (const [requestTarget, upstreamTarget] of mappings) {
+  test(`maps official v4 route ${requestTarget}`, () => {
+    const { upstreamUrl } = resolveProxyRequest(gatewayUrl(requestTarget));
     assert.equal(upstreamUrl.href, `https://solved.ac/api/v4/${upstreamTarget}`);
   });
 }
@@ -102,50 +62,35 @@ test('canonicalizes and encodes v4 path parameters exactly once', () => {
 test('preserves supported search options', () => {
   const { upstreamUrl } = resolveProxyRequest(
     gatewayUrl(
-      '/solved/search/problem?query=graph&page=2&sort=average_try&direction=asc&seed=stable',
+      '/solved/v4/problems?q=graph&page=2&sort=average_try&direction=asc&seed=stable',
     ),
   );
   assert.equal(
     upstreamUrl.href,
-    'https://solved.ac/api/v3/search/problem?query=graph&page=2&sort=average_try&direction=asc&seed=stable',
+    'https://solved.ac/api/v4/problems?page=2&q=graph&sort=average_try&direction=asc&seed=stable',
   );
 });
 
 test('encodes solved.ac search syntax and Unicode exactly once', () => {
   const { upstreamUrl } = resolveProxyRequest(
-    gatewayUrl('/solved/search/problem?query=%23dp+%40tourist+%ED%95%9C%EA%B8%80'),
+    gatewayUrl('/solved/v4/problems?q=%23dp+%40tourist+%ED%95%9C%EA%B8%80'),
   );
-  assert.equal(upstreamUrl.searchParams.get('query'), '#dp @tourist 한글');
-  assert.match(upstreamUrl.href, /query=%23dp\+%40tourist\+%ED%95%9C%EA%B8%80/u);
+  assert.equal(upstreamUrl.searchParams.get('q'), '#dp @tourist 한글');
+  assert.match(upstreamUrl.href, /q=%23dp\+%40tourist\+%ED%95%9C%EA%B8%80/u);
   assert.doesNotMatch(upstreamUrl.href, /%2523/u);
 });
 
-test('distinguishes a present empty search query from a missing query', () => {
+test('preserves an explicit empty optional problem query', () => {
   const { upstreamUrl } = resolveProxyRequest(
-    gatewayUrl('/solved/search/problem?query='),
+    gatewayUrl('/solved/v4/problems?q='),
   );
-  assert.equal(upstreamUrl.searchParams.get('query'), '');
-  assert.throws(
-    () => resolveProxyRequest(gatewayUrl('/solved/search/problem')),
-    (error: unknown) =>
-      error instanceof ContractError &&
-      error.status === 400 &&
-      error.code === 'invalid_query',
+  assert.equal(upstreamUrl.searchParams.get('q'), '');
+  assert.doesNotThrow(() =>
+    resolveProxyRequest(gatewayUrl('/solved/v4/problems')),
   );
 });
 
 const invalidRequests = [
-  '/solved/user/show',
-  '/solved/user/show?handle=',
-  '/solved/user/show?handle=a&handle=b',
-  '/solved/user/show?handle=a&token=secret',
-  '/solved/user/show?handle=line%0Abreak',
-  `/solved/user/show?handle=${'a'.repeat(257)}`,
-  '/solved/search/user?query=a&page=0',
-  '/solved/search/user?query=a&page=10001',
-  '/solved/search/user?query=a&page=1.5',
-  '/solved/search/problem?query=a&sort=unknown',
-  '/solved/search/problem?query=a&direction=sideways',
   '/solved/v4/users/tourist/activity/days',
   '/solved/v4/users/tourist/activity/days?from=2026-01-01&to=invalid',
   '/solved/v4/users/tourist/reputation?range=forever',
@@ -196,6 +141,15 @@ test('rejects paths outside the allowlist', () => {
 });
 
 const removedV3Routes = [
+  '/solved/user/show?handle=tourist',
+  '/solved/user/grass?handle=tourist',
+  '/solved/user/problem_stats?handle=tourist',
+  '/solved/user/tag_ratings?handle=tourist',
+  '/solved/background/show?backgroundId=balloon',
+  '/solved/badge/show?badgeId=bronze',
+  '/solved/search/problem?query=rsa',
+  '/solved/search/user?query=rsa',
+  '/solved/search/tag?query=rsa',
   '/solved/user/organizations?handle=tourist',
   '/solved/user/available_badges?handle=tourist',
   '/solved/user/top_100?handle=tourist',

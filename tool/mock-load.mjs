@@ -212,10 +212,7 @@ async function run(options) {
       fetch: mockFetch,
       maxConcurrentRequests: options.gatewayConcurrency,
       timeoutMs: options.upstreamDelayMs + 2_000,
-      upstreamBaseUrls: {
-        v3: 'https://mock-v3.invalid/api/v3/',
-        v4: 'https://mock-v4.invalid/api/v4/',
-      },
+      upstreamBaseUrl: 'https://mock-v4.invalid/api/v4/',
     }),
   );
   await listen(server);

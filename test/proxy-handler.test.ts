@@ -4,10 +4,7 @@ import test from 'node:test';
 
 import { proxyRequest, UpstreamError } from '../src/proxy-handler.js';
 
-const upstreamUrl = new URL(
-  'https://solved.ac/api/v3/user/show?handle=tourist',
-);
-const v4UpstreamUrl = new URL('https://solved.ac/api/v4/users/tourist');
+const upstreamUrl = new URL('https://solved.ac/api/v4/users/tourist');
 
 test('uses a fixed GET request without forwarding caller credentials', async () => {
   let capturedInput: URL | Request | string | undefined;
@@ -38,7 +35,7 @@ test('injects only server-owned solved.ac credentials for v4', async () => {
     return new Response('{}');
   };
 
-  await proxyRequest(v4UpstreamUrl, {
+  await proxyRequest(upstreamUrl, {
     fetch: fetchMock,
     credentials: {
       clientId: 'server-client-id',

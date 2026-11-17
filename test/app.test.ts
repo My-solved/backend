@@ -6,6 +6,10 @@ import test from 'node:test';
 import { createRequestHandler, handleGatewayRequest } from '../src/app.js';
 
 const text = (body: Uint8Array): string => new TextDecoder().decode(body);
+const credentials = Object.freeze({
+  clientId: 'trusted-client-id',
+  clientSecret: 'trusted-client-secret',
+});
 
 class FakeServerResponse extends EventEmitter {
   status: number | undefined;
@@ -86,7 +90,7 @@ test('does not expose an unrelated compatibility health route', async () => {
 test('returns public CORS preflight without calling upstream', async () => {
   let calls = 0;
   const result = await handleGatewayRequest(
-    { method: 'OPTIONS', url: '/solved/user/show?handle=tourist' },
+    { method: 'OPTIONS', url: '/solved/v4/tags' },
     {
       fetch: async () => {
         calls += 1;
@@ -105,7 +109,7 @@ for (const method of ['POST', 'PUT', 'DELETE', 'PATCH', 'HEAD']) {
   test(`rejects ${method}`, async () => {
     const result = await handleGatewayRequest({
       method,
-      url: '/solved/user/show?handle=tourist',
+      url: '/solved/v4/tags',
     });
     assert.equal(result.status, 405);
     assert.equal(result.headers.allow, 'GET, OPTIONS');
@@ -128,6 +132,15 @@ test('rejects an unknown path before calling upstream', async () => {
 });
 
 const removedV3Targets = [
+  '/solved/user/show?handle=tourist',
+  '/solved/user/grass?handle=tourist',
+  '/solved/user/problem_stats?handle=tourist',
+  '/solved/user/tag_ratings?handle=tourist',
+  '/solved/background/show?backgroundId=balloon',
+  '/solved/badge/show?badgeId=bronze',
+  '/solved/search/problem?query=rsa',
+  '/solved/search/user?query=rsa',
+  '/solved/search/tag?query=rsa',
   '/solved/user/organizations?handle=tourist',
   '/solved/user/available_badges?handle=tourist',
   '/solved/user/top_100?handle=tourist',
@@ -156,19 +169,19 @@ for (const url of removedV3Targets) {
 }
 
 const invalidTargets = [
-  'https://evil.invalid/solved/site/stats',
-  '//evil.invalid/solved/site/stats',
-  '/solved/site/stats#fragment',
-  '/solved/../site/stats',
-  '/solved/%2e%2e/site/stats',
-  '/solved/foo/../site/stats',
-  '/solved/foo/%2e%2e/site/stats',
-  '/solved/%2Fsite/stats',
-  '/solved/%5csite/stats',
-  '/solved/si\tte/stats',
-  '/solved/site/stats\0',
-  '/solved/site/stats ',
-  `/solved/site/stats?padding=${'a'.repeat(8_192)}`,
+  'https://evil.invalid/solved/v4/tags',
+  '//evil.invalid/solved/v4/tags',
+  '/solved/v4/tags#fragment',
+  '/solved/../v4/tags',
+  '/solved/%2e%2e/v4/tags',
+  '/solved/v4/foo/../tags',
+  '/solved/v4/foo/%2e%2e/tags',
+  '/solved/v4/%2Ftags',
+  '/solved/v4/%5ctags',
+  '/solved/v4/ta\tgs',
+  '/solved/v4/tags\0',
+  '/solved/v4/tags ',
+  `/solved/v4/tags?padding=${'a'.repeat(8_192)}`,
 ] as const;
 
 for (const url of invalidTargets) {
@@ -178,7 +191,7 @@ for (const url of invalidTargets) {
   });
 }
 
-for (const url of ['/solved/unknown/site/stats']) {
+for (const url of ['/solved/v4/unknown/tags']) {
   test(`does not route traversal-like target: ${url}`, async () => {
     const result = await handleGatewayRequest({ method: 'GET', url });
     assert.equal(result.status, 404);
@@ -188,15 +201,16 @@ for (const url of ['/solved/unknown/site/stats']) {
 test('maps contract, network, and timeout errors without leaking details', async () => {
   const invalid = await handleGatewayRequest({
     method: 'GET',
-    url: '/solved/user/show',
+    url: '/solved/v4/users/tourist/activity/days',
   });
   assert.equal(invalid.status, 400);
   assert.deepEqual(JSON.parse(text(invalid.body)), { error: 'invalid_query' });
   assert.equal(invalid.headers['cache-control'], 'no-store');
 
   const failed = await handleGatewayRequest(
-    { method: 'GET', url: '/solved/user/show?handle=tourist' },
+    { method: 'GET', url: '/solved/v4/users/tourist' },
     {
+      credentials,
       fetch: async () => {
         throw new Error('private upstream detail');
       },
@@ -208,8 +222,9 @@ test('maps contract, network, and timeout errors without leaking details', async
   });
 
   const timedOut = await handleGatewayRequest(
-    { method: 'GET', url: '/solved/user/show?handle=tourist' },
+    { method: 'GET', url: '/solved/v4/users/tourist' },
     {
+      credentials,
       timeoutMs: 1,
       fetch: (_input, init) =>
         new Promise((_resolve, reject) => {
@@ -227,15 +242,16 @@ test('maps contract, network, and timeout errors without leaking details', async
   });
 });
 
-test('forwards a valid request without any caller header input', async () => {
+test('forwards a valid request with only server-owned credentials', async () => {
   let observedUrl = '';
   let observedHeaders: RequestInit['headers'] | undefined;
   const result = await handleGatewayRequest(
     {
       method: 'GET',
-      url: '/solved/user/show?handle=tourist',
+      url: '/solved/v4/users/tourist',
     },
     {
+      credentials,
       fetch: async (input, init) => {
         observedUrl = input.toString();
         observedHeaders = init?.headers;
@@ -248,9 +264,13 @@ test('forwards a valid request without any caller header input', async () => {
   assert.equal(result.status, 200);
   assert.equal(
     observedUrl,
-    'https://solved.ac/api/v3/user/show?handle=tourist',
+    'https://solved.ac/api/v4/users/tourist',
   );
-  assert.deepEqual(observedHeaders, { accept: 'application/json' });
+  assert.deepEqual(observedHeaders, {
+    accept: 'application/json',
+    'x-client-id': 'trusted-client-id',
+    'x-client-secret': 'trusted-client-secret',
+  });
   assert.equal(text(result.body), '{"handle":"tourist"}');
 });
 
@@ -271,26 +291,6 @@ test('requires server credentials before making a v4 request', async () => {
     error: 'service_unavailable',
   });
   assert.equal(calls, 0);
-});
-
-test('does not send v4 app credentials to the legacy v3 API', async () => {
-  let observedHeaders: RequestInit['headers'] | undefined;
-  const result = await handleGatewayRequest(
-    { method: 'GET', url: '/solved/user/show?handle=tourist' },
-    {
-      credentials: {
-        clientId: 'trusted-client-id',
-        clientSecret: 'trusted-client-secret',
-      },
-      fetch: async (_input, init) => {
-        observedHeaders = init?.headers;
-        return new Response('{}');
-      },
-    },
-  );
-
-  assert.equal(result.status, 200);
-  assert.deepEqual(observedHeaders, { accept: 'application/json' });
 });
 
 test('uses only server credentials for v4 even when the caller sends headers', async () => {
@@ -329,13 +329,14 @@ test('uses only server credentials for v4 even when the caller sends headers', a
 test('rejects request bodies before calling upstream', () => {
   let calls = 0;
   const handler = createRequestHandler({
+    credentials,
     fetch: async () => {
       calls += 1;
       return new Response('{}');
     },
   });
   const response = new FakeServerResponse();
-  const request = incomingRequest('/solved/user/show?handle=tourist', {
+  const request = incomingRequest('/solved/v4/users/tourist', {
     'content-length': '1',
   });
 
@@ -354,6 +355,7 @@ test('rejects request bodies before calling upstream', () => {
 test('caps concurrent proxy requests while health remains available', async () => {
   const pending: Array<(response: Response) => void> = [];
   const handler = createRequestHandler({
+    credentials,
     maxConcurrentRequests: 1,
     fetch: () =>
       new Promise<Response>((resolve) => {
@@ -363,7 +365,7 @@ test('caps concurrent proxy requests while health remains available', async () =
 
   const first = new FakeServerResponse();
   handler(
-    incomingRequest('/solved/user/show?handle=first'),
+    incomingRequest('/solved/v4/users/first'),
     asServerResponse(first),
   );
   await new Promise<void>((resolve) => setImmediate(resolve));
@@ -371,7 +373,7 @@ test('caps concurrent proxy requests while health remains available', async () =
 
   const overloaded = new FakeServerResponse();
   handler(
-    incomingRequest('/solved/user/show?handle=second'),
+    incomingRequest('/solved/v4/users/second'),
     asServerResponse(overloaded),
   );
   assert.equal(overloaded.status, 503);
@@ -388,7 +390,7 @@ test('caps concurrent proxy requests while health remains available', async () =
 
   const next = new FakeServerResponse();
   handler(
-    incomingRequest('/solved/user/show?handle=second'),
+    incomingRequest('/solved/v4/users/second'),
     asServerResponse(next),
   );
   await new Promise<void>((resolve) => setImmediate(resolve));
@@ -401,6 +403,7 @@ test('caps concurrent proxy requests while health remains available', async () =
 test('aborts upstream work when the client disconnects', async () => {
   const signals: AbortSignal[] = [];
   const handler = createRequestHandler({
+    credentials,
     fetch: (_input, init) =>
       new Promise<Response>((_resolve, reject) => {
         const signal = init?.signal;
@@ -416,7 +419,7 @@ test('aborts upstream work when the client disconnects', async () => {
   const response = new FakeServerResponse();
 
   handler(
-    incomingRequest('/solved/user/show?handle=tourist'),
+    incomingRequest('/solved/v4/users/tourist'),
     asServerResponse(response),
   );
   await new Promise<void>((resolve) => setImmediate(resolve));
