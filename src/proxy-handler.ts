@@ -1,3 +1,7 @@
+import {
+  bearerAuthorizationHeader,
+  type BearerAuthorization,
+} from './authorization.js';
 import type { SolvedClientCredentials } from './config.js';
 import type { V4ResponseContract } from './v4-operation-contract.js';
 
@@ -26,6 +30,18 @@ export interface ProxyResponse {
   readonly headers: Readonly<Record<string, string>>;
   readonly body: Uint8Array;
 }
+
+export type ProxyRequestPolicy =
+  | {
+      readonly responses: Readonly<Record<string, V4ResponseContract>>;
+      readonly responseCache: 'upstream';
+      readonly authorization?: never;
+    }
+  | {
+      readonly responses: Readonly<Record<string, V4ResponseContract>>;
+      readonly responseCache: 'no-store';
+      readonly authorization?: BearerAuthorization;
+    };
 
 export class UpstreamError extends Error {
   constructor(
@@ -152,9 +168,15 @@ async function readLimitedBody(
 
 export async function proxyRequest(
   upstreamUrl: URL,
-  responsePolicy: Readonly<Record<string, V4ResponseContract>>,
+  policy: ProxyRequestPolicy,
   dependencies: ProxyDependencies = {},
 ): Promise<ProxyResponse> {
+  if (
+    policy.responseCache === 'upstream' &&
+    policy.authorization !== undefined
+  ) {
+    throw new TypeError('Invalid proxy request policy');
+  }
   const fetchImplementation = dependencies.fetch ?? globalThis.fetch;
   const timeoutMs = dependencies.timeoutMs ?? DEFAULT_UPSTREAM_TIMEOUT_MS;
   const maxResponseBytes =
@@ -181,6 +203,11 @@ export async function proxyRequest(
       requestHeaders['x-client-id'] = dependencies.credentials.clientId;
       requestHeaders['x-client-secret'] = dependencies.credentials.clientSecret;
     }
+    if (policy.authorization !== undefined) {
+      requestHeaders.authorization = bearerAuthorizationHeader(
+        policy.authorization,
+      );
+    }
     const response = await fetchImplementation(upstreamUrl, {
       method: 'GET',
       headers: requestHeaders,
@@ -199,15 +226,24 @@ export async function proxyRequest(
 
     const responseContract = await validateResponseContract(
       response,
-      responsePolicy,
+      policy.responses,
     );
 
     const responseHeaders: Record<string, string> = {};
     for (const name of SAFE_RESPONSE_HEADERS) {
+      if (
+        policy.responseCache === 'no-store' &&
+        (name === 'cache-control' || name === 'etag')
+      ) {
+        continue;
+      }
       const value = response.headers.get(name);
       if (value !== null) {
         responseHeaders[name] = value;
       }
+    }
+    if (policy.responseCache === 'no-store') {
+      responseHeaders['cache-control'] = 'no-store';
     }
 
     const body = await readLimitedBody(response, maxResponseBytes);

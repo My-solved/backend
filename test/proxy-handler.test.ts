@@ -2,13 +2,49 @@ import assert from 'node:assert/strict';
 import { ReadableStream } from 'node:stream/web';
 import test from 'node:test';
 
+import { parseBearerAuthorization } from '../src/authorization.js';
 import { V4_OPERATION_MANIFEST } from '../src/generated/v4-operations.js';
-import { proxyRequest, UpstreamError } from '../src/proxy-handler.js';
+import {
+  proxyRequest as proxyUpstream,
+  type ProxyDependencies,
+  type ProxyRequestPolicy,
+  UpstreamError,
+} from '../src/proxy-handler.js';
 import type { V4ResponseContract } from '../src/v4-operation-contract.js';
 
 const upstreamUrl = new URL('https://solved.ac/api/v4/users/tourist');
 const responsePolicy =
   V4_OPERATION_MANIFEST['GET /api/v4/users/{handle}'].responses;
+
+const proxyRequest = (
+  url: URL,
+  responses: Readonly<Record<string, V4ResponseContract>>,
+  dependencies: ProxyDependencies = {},
+) =>
+  proxyUpstream(
+    url,
+    { responses, responseCache: 'upstream' },
+    dependencies,
+  );
+
+function bearer(value = 'Bearer caller-token') {
+  const parsed = parseBearerAuthorization(['Authorization', value]);
+  assert.equal(parsed.kind, 'valid');
+  if (parsed.kind !== 'valid') {
+    throw new Error('invalid bearer test fixture');
+  }
+  return parsed.authorization;
+}
+
+if (false) {
+  // @ts-expect-error Bearer forwarding must always select the no-store variant.
+  const invalidPolicy: ProxyRequestPolicy = {
+    responses: responsePolicy,
+    responseCache: 'upstream',
+    authorization: bearer(),
+  };
+  void invalidPolicy;
+}
 
 function jsonResponse(
   body: string | Uint8Array = '{}',
@@ -64,6 +100,82 @@ test('injects only server-owned solved.ac credentials for v4', async () => {
   const headers = new Headers(capturedInit?.headers);
   assert.equal(headers.has('authorization'), false);
   assert.equal(headers.has('cookie'), false);
+});
+
+test('forwards only a validated typed Bearer value with server credentials', async () => {
+  let capturedInit: RequestInit | undefined;
+  await proxyUpstream(
+    upstreamUrl,
+    {
+      responses: responsePolicy,
+      authorization: bearer('bearer opaque.token-_~+/='),
+      responseCache: 'no-store',
+    },
+    {
+      credentials: {
+        clientId: 'server-client-id',
+        clientSecret: 'server-client-secret',
+      },
+      fetch: async (_input, init) => {
+        capturedInit = init;
+        return jsonResponse();
+      },
+    },
+  );
+
+  assert.deepEqual(capturedInit?.headers, {
+    accept: 'application/json',
+    'x-client-id': 'server-client-id',
+    'x-client-secret': 'server-client-secret',
+    authorization: 'Bearer opaque.token-_~+/=',
+  });
+});
+
+test('rejects an unsafe runtime Bearer/cache combination before fetch', async () => {
+  let calls = 0;
+  const unsafePolicy = {
+    responses: responsePolicy,
+    responseCache: 'upstream',
+    authorization: bearer(),
+  } as unknown as ProxyRequestPolicy;
+
+  await assert.rejects(
+    proxyUpstream(upstreamUrl, unsafePolicy, {
+      fetch: async () => {
+        calls += 1;
+        return jsonResponse();
+      },
+    }),
+    (error: unknown) =>
+      error instanceof TypeError &&
+      error.message === 'Invalid proxy request policy' &&
+      !error.message.includes('caller-token'),
+  );
+  assert.equal(calls, 0);
+});
+
+test('forces no-store and drops ETag for every token-aware response', async () => {
+  for (const authorization of [undefined, bearer()]) {
+    const actual = await proxyUpstream(
+      upstreamUrl,
+      {
+        responses: responsePolicy,
+        ...(authorization === undefined ? {} : { authorization }),
+        responseCache: 'no-store',
+      },
+      {
+        fetch: async () =>
+          jsonResponse('{}', {
+            headers: {
+              'cache-control': 'public, max-age=3600',
+              etag: '"private"',
+            },
+          }),
+      },
+    );
+    assert.equal(actual.headers['cache-control'], 'no-store');
+    assert.equal(actual.headers.etag, undefined);
+  }
 });
 
 test('preserves declared JSON bytes and only safe response headers', async () => {

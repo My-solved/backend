@@ -5,7 +5,10 @@ import {
   createRequestHandler,
   DEFAULT_MAX_CONCURRENT_REQUESTS,
 } from './app.js';
-import { loadSolvedClientCredentials } from './config.js';
+import {
+  loadProtectedCorsOrigins,
+  loadSolvedClientCredentials,
+} from './config.js';
 import {
   DEFAULT_MAX_RESPONSE_BYTES,
   DEFAULT_UPSTREAM_TIMEOUT_MS,
@@ -39,12 +42,14 @@ export function startServer(): Server {
     DEFAULT_MAX_CONCURRENT_REQUESTS,
   );
   const credentials = loadSolvedClientCredentials();
+  const protectedCorsOrigins = loadProtectedCorsOrigins();
   const server = createServer(
     createRequestHandler({
       timeoutMs,
       maxResponseBytes,
       maxConcurrentRequests,
       credentials,
+      protectedCorsOrigins,
     }),
   );
 

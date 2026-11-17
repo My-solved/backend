@@ -4,21 +4,30 @@
 solved.ac v4 API. Each deployment belongs to one registered solved.ac app and
 injects that app's credentials only for reviewed `/solved/v4/*` operations.
 
-The service has no database, cache, login flow, user access token, BOJ
+The service has no database, cache, login flow, token persistence, BOJ
 credential, or runtime package dependency. Its current runtime surface is
-generated from the reviewed operation manifest and contains exactly all 53
-runtime-enabled `GET` operations whose official access class is `open` or
-`public`. Fixed `/solved/v4/*` templates map only to their corresponding
-`https://solved.ac/api/v4/*` templates, with app credentials read from mounted
-secret files.
+generated from the reviewed operation manifest and contains exactly all 71
+runtime-enabled v4 `GET` operations: 53 `open`/`public` operations and 18
+`user` operations. Fixed `/solved/v4/*` templates map only to their
+corresponding `https://solved.ac/api/v4/*` templates, with app credentials read
+from mounted secret files.
 
-User- and app-access operations, `POST`, `PATCH`, `DELETE`, OAuth, request
-bodies, arbitrary upstream paths, unknown query parameters, and duplicate query
-parameters remain unreachable. The four public operations that carry a scope
-(`solves`, `bookmarks`, or `votes`) use anonymous/public semantics for now; the
-gateway does not accept or forward a caller bearer token. Caller
-`Authorization`, `Cookie`, `x-client-id`, and `x-client-secret` values are
-always ignored.
+The 18 user operations require exactly one RFC 6750 Bearer value. The four
+public operations that carry a scope (`solves`, `bookmarks`, or `votes`) accept
+one optionally and otherwise keep their anonymous semantics. The gateway does
+not inspect or infer token scopes; solved.ac remains authoritative for user and
+scope behavior. Malformed or duplicate Authorization is rejected instead of
+downgrading to anonymous. Authorization on any other public operation is
+ignored, and caller `Cookie`, `x-client-id`, and `x-client-secret` values are
+never forwarded. App-access operations, `POST`, `PATCH`, `DELETE`, OAuth,
+request bodies, arbitrary upstream paths, unknown query parameters, and
+duplicate query parameters remain unreachable.
+
+All 22 token-aware operation responses are forced to `Cache-Control: no-store`
+and have `ETag` removed, including anonymous calls to the four scoped-public
+operations. Browser access to those operations uses an exact configured origin
+allowlist; native/no-Origin requests remain available. Unscoped anonymous
+public GETs retain wildcard CORS but never grant an Authorization preflight.
 
 URI values are decoded once, checked against the generated path/query schemas,
 and encoded once into the fixed upstream template. The gateway does not inject
@@ -93,10 +102,10 @@ component-schema counts change. Review and update those invariants in
 committed snapshot preserves the source schemas and arrays as-is;
 canonicalization only orders JSON object keys and formatting.
 
-Runtime routing consumes this contract but still fails closed: only the 53
-runtime-enabled `open`/`public` `GET` entries are compiled into the route trie.
-The remaining manifest entries do not become reachable merely by existing in
-the generated data.
+Runtime routing consumes this contract but still fails closed: only the 71
+runtime-enabled `GET` entries in the `open`, `public`, and `user` access classes
+are compiled into the route trie. App operations and non-GET entries do not
+become reachable merely by existing in the generated data.
 
 The current upstream document also has known gaps that must remain explicit in
 follow-up generation rather than being silently guessed: it declares no
@@ -234,6 +243,7 @@ Configuration is intentionally small:
 | `REQUEST_TIMEOUT_MS` | `8000` | solved.ac request deadline |
 | `MAX_RESPONSE_BYTES` | `5242880` | Maximum upstream response size |
 | `MAX_CONCURRENT_REQUESTS` | `8` | Concurrent non-health request cap |
+| `SOLVED_PROTECTED_CORS_ORIGINS` | empty | Comma-separated exact browser origins allowed to call token-aware operations |
 | `SOLVED_CLIENT_ID_FILE` | required | File containing the solved.ac app client ID |
 | `SOLVED_CLIENT_SECRET_FILE` | required | File containing the solved.ac app client secret |
 
@@ -243,6 +253,13 @@ refuses to listen if either path is missing, unreadable, empty, or not safe to
 place in an HTTP header. Do not place either credential in downloadable client
 code, a Docker image, build argument, Compose environment value, or repository
 file.
+
+`SOLVED_PROTECTED_CORS_ORIGINS` accepts at most 32 canonical `http://` or
+`https://` origins with no path, query, fragment, wildcard, credentials, or
+`null` origin. An empty value closes token-aware browser CORS while native
+clients that send no Origin continue to work. Use HTTPS origins outside local
+development. This setting controls browser response access only; it is not
+authentication, authorization, or a substitute for edge rate limits.
 
 ## Run with Docker
 

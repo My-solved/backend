@@ -4,10 +4,10 @@ import test from 'node:test';
 import { ContractError, resolveProxyRequest } from '../src/contract.js';
 import { parseRequestTarget } from '../src/request-target.js';
 import {
-  compilePublicGetRouter,
-  PUBLIC_GET_OPERATION_KEYS,
-  PUBLIC_GET_ROUTES,
-  type PublicGetRoute,
+  compileGetRouter,
+  GET_OPERATION_KEYS,
+  GET_ROUTES,
+  type V4GetRoute,
 } from '../src/routes.js';
 import type { V4RequestSchema } from '../src/v4-operation-contract.js';
 import { validateUriValue } from '../src/uri-schema.js';
@@ -81,38 +81,39 @@ function replacePathParameters(
   });
 }
 
-test('runtime surface contains exactly the 53 public and open GET operations', () => {
-  assert.equal(PUBLIC_GET_ROUTES.length, 53);
-  assert.equal(PUBLIC_GET_OPERATION_KEYS.length, 53);
+test('runtime surface contains exactly all 71 v4 GET operations', () => {
+  assert.equal(GET_ROUTES.length, 71);
+  assert.equal(GET_OPERATION_KEYS.length, 71);
   assert.equal(
-    PUBLIC_GET_ROUTES.every(
+    GET_ROUTES.every(
       ({ operation }) =>
         operation.method === 'GET' &&
         operation.runtime.enabled &&
         (operation.access.class === 'open' ||
-          operation.access.class === 'public') &&
+          operation.access.class === 'public' ||
+          operation.access.class === 'user') &&
         operation.requestBody === null,
     ),
     true,
   );
   assert.deepEqual(
-    PUBLIC_GET_OPERATION_KEYS,
-    [...PUBLIC_GET_OPERATION_KEYS].sort(),
+    GET_OPERATION_KEYS,
+    [...GET_OPERATION_KEYS].sort(),
   );
-  assert.equal(new Set(PUBLIC_GET_OPERATION_KEYS).size, 53);
-  assert.ok(PUBLIC_GET_OPERATION_KEYS.includes('GET /api/v4/health'));
+  assert.equal(new Set(GET_OPERATION_KEYS).size, 71);
+  assert.ok(GET_OPERATION_KEYS.includes('GET /api/v4/health'));
   assert.equal(
-    PUBLIC_GET_OPERATION_KEYS.some((key) => key.includes('/api/v4/account/')),
-    false,
+    GET_OPERATION_KEYS.filter((key) => key.includes('/api/v4/account/')).length,
+    12,
   );
   assert.equal(
-    PUBLIC_GET_OPERATION_KEYS.some((key) => key.startsWith('POST ')),
+    GET_OPERATION_KEYS.some((key) => key.startsWith('POST ')),
     false,
   );
   assert.deepEqual(
-    PUBLIC_GET_ROUTES.filter(({ operation }) => operation.access.scope).map(
-      ({ key }) => key,
-    ),
+    GET_ROUTES.filter(
+      ({ operation }) => operation.access.bearer === 'optional',
+    ).map(({ key }) => key),
     [
       'GET /api/v4/problems/{problemId}',
       'GET /api/v4/users/{handle}/bookmarks',
@@ -120,10 +121,32 @@ test('runtime surface contains exactly the 53 public and open GET operations', (
       'GET /api/v4/users/{handle}/contributions',
     ],
   );
+  assert.equal(
+    GET_ROUTES.filter(({ operation }) => operation.access.bearer === 'required')
+      .length,
+    18,
+  );
+  assert.equal(
+    GET_ROUTES.filter(({ operation }) => operation.access.bearer === 'none')
+      .length,
+    49,
+  );
+  assert.equal(
+    GET_ROUTES.every(
+      ({ operation }) =>
+        operation.access.bearer !== 'required' ||
+        operation.access.class === 'user',
+    ),
+    true,
+  );
+  assert.equal(
+    GET_ROUTES.some(({ operation }) => operation.access.class === 'app'),
+    false,
+  );
 });
 
-for (const route of PUBLIC_GET_ROUTES) {
-  test(`resolves generated public route ${route.key}`, () => {
+for (const route of GET_ROUTES) {
+  test(`resolves generated GET route ${route.key}`, () => {
     const pathValues = Object.fromEntries(
       route.operation.parameters.path.map((parameter) => [
         parameter.name,
@@ -291,10 +314,10 @@ test('re-encodes a literal query percent without a second decode', () => {
 });
 
 test('route matching gives a literal segment precedence over a parameter', () => {
-  const profile = PUBLIC_GET_ROUTES.find(
+  const profile = GET_ROUTES.find(
     ({ key }) => key === 'GET /api/v4/users/{handle}',
   );
-  const tags = PUBLIC_GET_ROUTES.find(
+  const tags = GET_ROUTES.find(
     ({ key }) => key === 'GET /api/v4/tags',
   );
   assert.ok(profile);
@@ -313,9 +336,9 @@ test('route matching gives a literal segment precedence over a parameter', () =>
   literalRoute.key = 'GET /api/v4/example/collection';
   literalRoute.operation.gatewayPath = '/solved/v4/example/collection';
 
-  const router = compilePublicGetRouter([
-    parameterRoute as unknown as PublicGetRoute,
-    literalRoute as unknown as PublicGetRoute,
+  const router = compileGetRouter([
+    parameterRoute as unknown as V4GetRoute,
+    literalRoute as unknown as V4GetRoute,
   ]);
   assert.equal(
     router.match(['solved', 'v4', 'example', 'collection'])?.key,
@@ -328,8 +351,6 @@ test('route matching gives a literal segment precedence over a parameter', () =>
 });
 
 const closedRoutes = [
-  '/solved/v4/account/settings',
-  '/solved/v4/problems/1000/votes/me',
   '/solved/v4/oauth/token',
   '/solved/problem/show?problemId=1000',
   '/solved/v4/achievements/items/title/unknown',
@@ -348,12 +369,12 @@ for (const target of closedRoutes) {
 }
 
 test('route compiler rejects duplicate and ambiguous templates', () => {
-  const profile = PUBLIC_GET_ROUTES.find(
+  const profile = GET_ROUTES.find(
     ({ key }) => key === 'GET /api/v4/users/{handle}',
   );
   assert.ok(profile);
   assert.throws(
-    () => compilePublicGetRouter([profile, profile]),
+    () => compileGetRouter([profile, profile]),
     /duplicate leaf/u,
   );
 
@@ -374,9 +395,9 @@ test('route compiler rejects duplicate and ambiguous templates', () => {
   secondParameter.name = 'key';
   assert.throws(
     () =>
-      compilePublicGetRouter([
-        first as unknown as PublicGetRoute,
-        second as unknown as PublicGetRoute,
+      compileGetRouter([
+        first as unknown as V4GetRoute,
+        second as unknown as V4GetRoute,
       ]),
     /ambiguous parameter sibling/u,
   );

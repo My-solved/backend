@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import {
   ConfigurationError,
+  loadProtectedCorsOrigins,
   loadSolvedClientCredentials,
 } from '../src/config.js';
 
@@ -104,3 +105,47 @@ test('rejects an oversized credential file before reading its contents', () => {
     rmSync(fixture.directory, { recursive: true, force: true });
   }
 });
+
+test('loads a bounded canonical protected CORS origin allowlist', () => {
+  assert.deepEqual(loadProtectedCorsOrigins({}), []);
+  assert.deepEqual(
+    loadProtectedCorsOrigins({
+      SOLVED_PROTECTED_CORS_ORIGINS:
+        'https://app.example,http://localhost:3000',
+    }),
+    ['https://app.example', 'http://localhost:3000'],
+  );
+});
+
+for (const invalidValue of [
+  '*',
+  'null',
+  'file:///tmp/app',
+  'https://user:password@app.example',
+  'https://app.example/path',
+  'https://app.example/',
+  'https://app.example?query=yes',
+  'https://app.example#fragment',
+  'HTTPS://app.example',
+  'https://app.example,https://app.example',
+  'https://app.example,',
+  Array.from(
+    { length: 33 },
+    (_unused, index) => `https://app-${index}.example`,
+  ).join(','),
+  'x'.repeat(8_193),
+]) {
+  test(`rejects invalid protected CORS origin configuration of length ${invalidValue.length}`, () => {
+    assert.throws(
+      () =>
+        loadProtectedCorsOrigins({
+          SOLVED_PROTECTED_CORS_ORIGINS: invalidValue,
+        }),
+      (error: unknown) =>
+        error instanceof ConfigurationError &&
+        error.message ===
+          'SOLVED_PROTECTED_CORS_ORIGINS contains an invalid value' &&
+        !error.message.includes(invalidValue),
+    );
+  });
+}

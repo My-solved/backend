@@ -15,6 +15,7 @@ services:
       REQUEST_TIMEOUT_MS: 8000
       MAX_RESPONSE_BYTES: 5242880
       MAX_CONCURRENT_REQUESTS: 8
+      SOLVED_PROTECTED_CORS_ORIGINS: ${SOLVED_PROTECTED_CORS_ORIGINS:-}
       SOLVED_CLIENT_ID_FILE: /run/secrets/solved_client_id
       SOLVED_CLIENT_SECRET_FILE: /run/secrets/solved_client_secret
     secrets:
