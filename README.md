@@ -331,16 +331,22 @@ authentication, authorization, or a substitute for edge rate limits.
 
 ## Run with Docker
 
+For a digest-pinned production rollout, non-root secret-mount preflight, edge
+policy, credential rotation, and rollback, follow
+[`DEPLOYMENT.md`](DEPLOYMENT.md).
+
 ```sh
 SOLVED_CLIENT_ID_FILE=/absolute/host/path/client-id \
 SOLVED_CLIENT_SECRET_FILE=/absolute/host/path/client-secret \
-  docker compose up --build -d
+  docker compose up --build --detach --wait --wait-timeout 120
 curl --fail http://127.0.0.1:3000/healthz
 ```
 
-The client-secret host file must be readable only by the deployment account;
-using the same permissions for the client-ID file keeps deployment handling
-uniform. Compose mounts them at `/run/secrets/solved_client_id` and
+Restrict both host files to deployment administrators and the minimum
+host/runtime identity needed for the non-root container to read the mounts.
+Do not assume host-only permissions are readable across every Docker runtime;
+the production runbook includes a value-safe mount preflight. Compose mounts
+the files at `/run/secrets/solved_client_id` and
 `/run/secrets/solved_client_secret`; only those in-container paths are exposed
 through the process environment.
 
@@ -373,7 +379,7 @@ SOLVED_CLIENT_SECRET_FILE=/absolute/host/path/client-secret \
 SOLVED_PROXY_IMAGE=ghcr.io/OWNER/solved-proxy@sha256:DIGEST \
 SOLVED_CLIENT_ID_FILE=/absolute/host/path/client-id \
 SOLVED_CLIENT_SECRET_FILE=/absolute/host/path/client-secret \
-  docker compose up --no-build --detach solved-proxy
+  docker compose up --no-build --detach --wait --wait-timeout 120 solved-proxy
 ```
 
 New GHCR packages are private by default. Before pulling, either make the
@@ -391,19 +397,19 @@ an edge that enforces the deployment's caller and abuse policy.
 Example Nginx location when the container is published on loopback port 3000:
 
 ```nginx
-location /solved/ {
+location ^~ /solved/v4/ {
     proxy_pass http://127.0.0.1:3000;
     proxy_http_version 1.1;
     proxy_set_header Connection "";
     proxy_set_header Host $host;
 }
 
-location = /solved-healthz {
-    proxy_pass http://127.0.0.1:3000/healthz;
+location = /healthz {
+    proxy_pass http://127.0.0.1:3000;
 }
 ```
 
-Point the gateway monitor at `/solved-healthz`. Apply request-rate and
+Point the gateway monitor at `/healthz`. Apply request-rate and
 connection limits at the public reverse proxy as well; the application cap
 protects upstream work but is not a replacement for edge abuse controls.
 
