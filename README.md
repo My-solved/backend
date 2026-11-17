@@ -58,7 +58,50 @@ SOLVED_CLIENT_SECRET_FILE=/absolute/path/to/client-secret \
 ```
 
 The build emits JavaScript to `dist/`. Tests use Node's built-in test runner and
-stub `fetch`, so the test suite does not need network access or a listening port.
+stub upstream `fetch`; they need no external network access. The load-tool test
+binds only an ephemeral loopback port.
+
+## Load and smoke verification
+
+Run the bounded mock load harness without solved.ac credentials or network
+traffic:
+
+```sh
+npm run load:mock
+npm run load:mock -- \
+  --requests 512 \
+  --client-concurrency 48 \
+  --gateway-concurrency 8 \
+  --upstream-delay-ms 40 \
+  --health-probes 20
+```
+
+The harness starts the real gateway handler on an ephemeral loopback port and
+injects an in-memory upstream at reserved `.invalid` origins. There is no remote
+URL option. A release barrier holds the mock upstream at the configured cap
+while health probes run, making the concurrency and responsiveness checks
+deterministic. It also verifies overload accounting, credential injection into
+the mock only, and rate-limit header forwarding. The JSON report separates
+aggregate load-response throughput, including overload `503` responses, from
+successful `200` response throughput. Hard limits cap a run at 5,000 requests,
+128 client workers, 64 upstream slots, and 1 second of mock latency.
+
+After a deployment has real server-side credentials, an explicit low-volume
+smoke command can check the deployed gateway:
+
+```sh
+npm run smoke:live -- \
+  --base-url https://gateway.example/ \
+  --confirm-live-smoke
+```
+
+This command sends at most two `GET` requests. It checks `/healthz` first and
+requests `/solved/v4/tags` only when health succeeds. It accepts no secret or
+authorization option, prints no response body, rejects redirects, and reports
+only status, latency, and safe rate-limit headers. The tag request consumes the
+deployed app's real solved.ac quota, so do not use this command as a load
+generator. Exhaustion and `429` behavior belong in the mock harness; production
+load testing requires separate solved.ac approval.
 
 Configuration is intentionally small:
 

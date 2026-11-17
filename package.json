@@ -10,6 +10,8 @@
   },
   "scripts": {
     "build": "tsc --project tsconfig.json",
+    "load:mock": "npm run build --silent && node tool/mock-load.mjs",
+    "smoke:live": "node tool/live-smoke.mjs",
     "start": "node dist/src/server.js",
     "test": "npm run build && node --test dist/test/*.test.js",
     "typecheck": "tsc --project tsconfig.json --noEmit"
