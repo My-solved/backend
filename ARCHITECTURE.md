@@ -71,8 +71,12 @@ their filenames mirror the production module roles.
 ## Generated boundaries
 
 Files under `src/generated/` are never edited directly. The OpenAPI snapshot,
-wire declarations, and operation manifest remain deterministic inputs to the
-application router and pure domain request-schema validator. Cataloging a
-method is distinct from exposing it through the inbound HTTP adapter. See the
-update and verification commands in
+wire declarations, snapshot-bound gateway request supplement, and operation
+manifest remain deterministic inputs to the application router and pure domain
+request-schema validator. The OAuth supplement is provenance-separated from
+the official wire declarations and does not activate its two routes; their
+runtime policy keeps the exact sensitive-security requirements attached while
+implementation is still required. Cataloging a method is distinct from
+exposing it through the inbound HTTP adapter. See the update and verification
+commands in
 [`README.md`](README.md).

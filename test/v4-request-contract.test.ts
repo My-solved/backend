@@ -261,7 +261,8 @@ test('method-aware runtime catalog locks all 81 reviewed operations', () => {
   assert.equal(
     bodyRoutes.every(
       ({ operation }) =>
-        operation.requestBody?.declaredRequired === false &&
+        operation.requestBody?.source === 'openapi' &&
+        operation.requestBody.declaredRequired === false &&
         operation.requestBody.effectiveRequired === true &&
         operation.requestBody.mediaType === 'application/json',
     ),

@@ -1,0 +1,125 @@
+{
+  "version": 1,
+  "snapshotSha256": "312abfb4677fc67d914f6a357ff5b89d170eb65791ecb5d3ab30ab873352125d",
+  "operations": [
+    {
+      "operation": "POST /api/v4/oauth/revoke",
+      "supplement": "oauth-revoke",
+      "sourceRequestBody": "absent",
+      "sourceDescriptionSha256": "15ed35b8d2cca48237a743a65e2db8aba2966ac89dc5ea8df9de4917761d95e1",
+      "effectiveRequired": true,
+      "mediaTypes": [
+        "application/x-www-form-urlencoded"
+      ],
+      "canonicalMediaType": "application/x-www-form-urlencoded",
+      "security": {
+        "browserCors": "exact-origin",
+        "responseCache": "no-store",
+        "responsePragma": "no-cache",
+        "forwardEtag": false,
+        "upstreamAttempts": 1,
+        "appAuthentication": "server-owned-x-client-headers",
+        "callerAuthorization": "reject"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "additionalProperties": false
+      },
+      "provenance": "The solved.ac description names token and normatively references RFC 7009; section 2.1 defines the revocation request as form-urlencoded. token_type_hint is omitted because solved.ac does not document it.",
+      "reason": "Supply the required token field and reviewed RFC media type without changing the immutable official snapshot."
+    },
+    {
+      "operation": "POST /api/v4/oauth/token",
+      "supplement": "oauth-token",
+      "sourceRequestBody": "absent",
+      "sourceDescriptionSha256": "23370b8ad7f346040583efa6d933c5b3d9cbb5df87f7de2e71ff072065fd4201",
+      "effectiveRequired": true,
+      "mediaTypes": [
+        "application/json",
+        "application/x-www-form-urlencoded"
+      ],
+      "canonicalMediaType": "application/x-www-form-urlencoded",
+      "security": {
+        "browserCors": "exact-origin",
+        "responseCache": "no-store",
+        "responsePragma": "no-cache",
+        "forwardEtag": false,
+        "upstreamAttempts": 1,
+        "appAuthentication": "server-owned-x-client-headers",
+        "callerAuthorization": "reject"
+      },
+      "schema": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "minLength": 1
+              },
+              "code_verifier": {
+                "type": "string",
+                "minLength": 43,
+                "maxLength": 128,
+                "pattern": "^[A-Za-z0-9._~-]{43,128}$"
+              },
+              "grant_type": {
+                "type": "string",
+                "enum": [
+                  "authorization_code"
+                ]
+              },
+              "redirect_uri": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "code",
+              "code_verifier",
+              "grant_type",
+              "redirect_uri"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "grant_type": {
+                "type": "string",
+                "enum": [
+                  "refresh_token"
+                ]
+              },
+              "refresh_token": {
+                "type": "string",
+                "minLength": 1
+              },
+              "scope": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[\\x21\\x23-\\x5B\\x5D-\\x7E]+(?: [\\x21\\x23-\\x5B\\x5D-\\x7E]+)*$"
+              }
+            },
+            "required": [
+              "grant_type",
+              "refresh_token"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "provenance": "The solved.ac description explicitly defines JSON or form-urlencoded authorization_code and refresh_token bodies. RFC 7636 supplies the code_verifier grammar and RFC 6749 supplies the scope grammar.",
+      "reason": "Model the two documented grant bodies as an exclusive strict union without changing the immutable official snapshot."
+    }
+  ]
+}

@@ -117,11 +117,12 @@ test('generated operation manifest covers the complete stable catalog', () => {
 test('reviewed gateway policies stay explicit in generated data', () => {
   const entries = Object.values(V4_OPERATION_MANIFEST);
   const declaredBodies = entries.filter(
-    (operation) => operation.requestBody !== null,
+    (operation) => operation.requestBody?.source === 'openapi',
   );
 
   assert.equal(declaredBodies.length, 7);
   for (const operation of declaredBodies) {
+    assert.equal(operation.requestBody?.source, 'openapi');
     assert.equal(operation.requestBody?.declaredRequired, false);
     assert.equal(operation.requestBody?.effectiveRequired, true);
     assert.equal(operation.requestBody?.mediaType, 'application/json');
@@ -152,9 +153,23 @@ test('reviewed gateway policies stay explicit in generated data', () => {
     'POST /api/v4/oauth/token',
   ] as const) {
     const operation = V4_OPERATION_MANIFEST[key];
-    assert.equal(operation.requestBody, null);
+    assert.equal(operation.requestBody?.source, 'gateway-supplement');
+    assert.equal(operation.requestBody?.effectiveRequired, true);
+    assert.equal(
+      operation.requestBody?.canonicalMediaType,
+      'application/x-www-form-urlencoded',
+    );
     assert.equal(operation.runtime.enabled, false);
-    assert.equal(operation.runtime.policy, 'supplement-required');
+    assert.equal(operation.runtime.policy, 'implementation-required');
+    assert.deepEqual(operation.runtime.requiredSecurity, {
+      appAuthentication: 'server-owned-x-client-headers',
+      browserCors: 'exact-origin',
+      callerAuthorization: 'reject',
+      forwardEtag: false,
+      responseCache: 'no-store',
+      responsePragma: 'no-cache',
+      upstreamAttempts: 1,
+    });
   }
   assert.equal(
     entries.filter((operation) => !operation.runtime.enabled).length,

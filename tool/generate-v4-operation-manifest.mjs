@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -17,6 +18,11 @@ export const GATEWAY_OVERRIDES_PATH = join(
   repositoryRoot,
   'openapi',
   'solved-v4.gateway-overrides.json',
+);
+export const REQUEST_SUPPLEMENTS_PATH = join(
+  repositoryRoot,
+  'openapi',
+  'solved-v4.request-supplements.json',
 );
 export const OPERATION_MANIFEST_PATH = join(
   repositoryRoot,
@@ -40,6 +46,32 @@ const expectedGetBearerPolicyCounts = Object.freeze({
   optional: 4,
   required: 18,
 });
+const expectedOAuthSupplements = Object.freeze({
+  'POST /api/v4/oauth/revoke': Object.freeze({
+    supplement: 'oauth-revoke',
+    sourceDescriptionSha256:
+      '15ed35b8d2cca48237a743a65e2db8aba2966ac89dc5ea8df9de4917761d95e1',
+    mediaTypes: Object.freeze(['application/x-www-form-urlencoded']),
+  }),
+  'POST /api/v4/oauth/token': Object.freeze({
+    supplement: 'oauth-token',
+    sourceDescriptionSha256:
+      '23370b8ad7f346040583efa6d933c5b3d9cbb5df87f7de2e71ff072065fd4201',
+    mediaTypes: Object.freeze([
+      'application/json',
+      'application/x-www-form-urlencoded',
+    ]),
+  }),
+});
+const expectedOAuthSecurity = Object.freeze({
+  browserCors: 'exact-origin',
+  responseCache: 'no-store',
+  responsePragma: 'no-cache',
+  forwardEtag: false,
+  upstreamAttempts: 1,
+  appAuthentication: 'server-owned-x-client-headers',
+  callerAuthorization: 'reject',
+});
 
 const allowedPatterns = new Set([
   '^[0-9a-z_]{1,32}$',
@@ -49,6 +81,8 @@ const allowedPatterns = new Set([
   '^\\d{8}$',
   '^[a-z0-9]+(?:-[a-z0-9]+)*(?:\\/[a-z0-9]+(?:-[a-z0-9]+)*)*$',
   '^\\d{4}-\\d{2}-\\d{2}$',
+  '^[A-Za-z0-9._~-]{43,128}$',
+  '^[\\x21\\x23-\\x5B\\x5D-\\x7E]+(?: [\\x21\\x23-\\x5B\\x5D-\\x7E]+)*$',
 ]);
 
 const allowedSchemaKeys = Object.freeze({
@@ -76,6 +110,7 @@ const allowedSchemaKeys = Object.freeze({
     'additionalProperties',
   ]),
   anyOf: new Set(['anyOf']),
+  oneOf: new Set(['oneOf']),
 });
 
 export const EXPECTED_REQUEST_SCHEMA_METRICS = Object.freeze({
@@ -117,6 +152,31 @@ export const EXPECTED_REQUEST_SCHEMA_METRICS = Object.freeze({
     '^\\d{8}$': 1,
     '^[a-z0-9]+(?:-[a-z0-9]+)*(?:\\/[a-z0-9]+(?:-[a-z0-9]+)*)*$': 1,
     '^\\d{4}-\\d{2}-\\d{2}$': 4,
+  }),
+});
+
+export const EXPECTED_SUPPLEMENT_SCHEMA_METRICS = Object.freeze({
+  roots: 2,
+  nodes: 12,
+  types: Object.freeze({
+    oneOf: 1,
+    object: 3,
+    string: 8,
+  }),
+  keywords: Object.freeze({
+    oneOf: 1,
+    type: 11,
+    properties: 3,
+    required: 3,
+    additionalProperties: 3,
+    enum: 2,
+    minLength: 6,
+    maxLength: 1,
+    pattern: 2,
+  }),
+  patterns: Object.freeze({
+    '^[A-Za-z0-9._~-]{43,128}$': 1,
+    '^[\\x21\\x23-\\x5B\\x5D-\\x7E]+(?: [\\x21\\x23-\\x5B\\x5D-\\x7E]+)*$': 1,
   }),
 });
 
@@ -198,6 +258,9 @@ function assertDeepEqual(actual, expected, label) {
 function typeDescriptor(schema) {
   if (Object.hasOwn(schema, 'anyOf')) {
     return { kind: 'anyOf', nullable: false };
+  }
+  if (Object.hasOwn(schema, 'oneOf')) {
+    return { kind: 'oneOf', nullable: false };
   }
   const rawType = schema.type;
   if (typeof rawType === 'string') {
@@ -285,6 +348,19 @@ export function normalizeRequestSchema(
       throw new Error('the reviewed anyOf shape only allows non-null strings');
     }
     return { kind: 'anyOf', nullable: false, options };
+  }
+
+  if (kind === 'oneOf') {
+    if (!Array.isArray(schema.oneOf) || schema.oneOf.length !== 2) {
+      throw new Error('the reviewed oneOf shape must contain exactly two branches');
+    }
+    const options = schema.oneOf.map((item) =>
+      normalizeRequestSchema(item, unknownPropertiesPolicy),
+    );
+    if (options.some((item) => item.kind !== 'object' || item.nullable)) {
+      throw new Error('the reviewed oneOf shape only allows non-null objects');
+    }
+    return { kind: 'oneOf', nullable: false, options };
   }
 
   if (kind === 'string') {
@@ -429,6 +505,9 @@ function schemaTypeMetric(schema) {
   if (Object.hasOwn(schema, 'anyOf')) {
     return 'anyOf';
   }
+  if (Object.hasOwn(schema, 'oneOf')) {
+    return 'oneOf';
+  }
   return Array.isArray(schema.type) ? schema.type.join('|') : schema.type;
 }
 
@@ -455,6 +534,11 @@ function recordSchemaMetrics(schema, metrics, root = false) {
   }
   if (Array.isArray(schema.anyOf)) {
     for (const option of schema.anyOf) {
+      recordSchemaMetrics(option, metrics);
+    }
+  }
+  if (Array.isArray(schema.oneOf)) {
+    for (const option of schema.oneOf) {
       recordSchemaMetrics(option, metrics);
     }
   }
@@ -660,11 +744,7 @@ export function validateGatewayOverrides(overrides, document, snapshotSha256) {
     'affiliation effective policy',
   );
 
-  const oauthPolicies = Object.freeze({
-    'POST /api/v4/oauth/revoke': 'oauth-revoke',
-    'POST /api/v4/oauth/token': 'oauth-token',
-  });
-  for (const [key, supplement] of Object.entries(oauthPolicies)) {
+  for (const [key, expected] of Object.entries(expectedOAuthSupplements)) {
     const override = byOperation.get(key);
     assertExactKeys(
       override,
@@ -681,8 +761,8 @@ export function validateGatewayOverrides(overrides, document, snapshotSha256) {
     if (
       override.expectRequestBody !== 'absent' ||
       override.runtimeEnabled !== false ||
-      override.policy !== 'supplement-required' ||
-      override.supplement !== supplement ||
+      override.policy !== 'implementation-required' ||
+      override.supplement !== expected.supplement ||
       Object.hasOwn(operations.get(key).operation, 'requestBody')
     ) {
       throw new Error('OAuth supplement boundary changed');
@@ -690,7 +770,10 @@ export function validateGatewayOverrides(overrides, document, snapshotSha256) {
     assertNonEmptyString(override.reason, 'OAuth override reason');
   }
 
-  const expectedTargets = [affiliationKey, ...Object.keys(oauthPolicies)].sort(
+  const expectedTargets = [
+    affiliationKey,
+    ...Object.keys(expectedOAuthSupplements),
+  ].sort(
     compareText,
   );
   if (stableJson([...byOperation.keys()].sort(compareText)) !== stableJson(expectedTargets)) {
@@ -705,6 +788,199 @@ export function validateGatewayOverrides(overrides, document, snapshotSha256) {
     requestObjectUnknownProperties:
       overrides.requestObjectUnknownProperties,
   };
+}
+
+function sha256Text(value) {
+  return createHash('sha256').update(value, 'utf8').digest('hex');
+}
+
+function expectedSupplementSchema(supplement) {
+  const nonEmptyString = { kind: 'string', nullable: false, minLength: 1 };
+  if (supplement === 'oauth-revoke') {
+    return {
+      kind: 'object',
+      nullable: false,
+      properties: { token: nonEmptyString },
+      required: ['token'],
+      unknownProperties: 'reject',
+    };
+  }
+  if (supplement !== 'oauth-token') {
+    throw new Error('OAuth supplement name is not reviewed');
+  }
+  return {
+    kind: 'oneOf',
+    nullable: false,
+    options: [
+      {
+        kind: 'object',
+        nullable: false,
+        properties: {
+          code: nonEmptyString,
+          code_verifier: {
+            kind: 'string',
+            nullable: false,
+            minLength: 43,
+            maxLength: 128,
+            pattern: '^[A-Za-z0-9._~-]{43,128}$',
+          },
+          grant_type: {
+            kind: 'string',
+            nullable: false,
+            enum: ['authorization_code'],
+          },
+          redirect_uri: nonEmptyString,
+        },
+        required: ['code', 'code_verifier', 'grant_type', 'redirect_uri'],
+        unknownProperties: 'reject',
+      },
+      {
+        kind: 'object',
+        nullable: false,
+        properties: {
+          grant_type: {
+            kind: 'string',
+            nullable: false,
+            enum: ['refresh_token'],
+          },
+          refresh_token: nonEmptyString,
+          scope: {
+            kind: 'string',
+            nullable: false,
+            minLength: 1,
+            pattern:
+              '^[\\x21\\x23-\\x5B\\x5D-\\x7E]+(?: [\\x21\\x23-\\x5B\\x5D-\\x7E]+)*$',
+          },
+        },
+        required: ['grant_type', 'refresh_token'],
+        unknownProperties: 'reject',
+      },
+    ],
+  };
+}
+
+export function validateRequestSupplements(
+  supplements,
+  document,
+  snapshotSha256,
+) {
+  assertExactKeys(
+    supplements,
+    ['version', 'snapshotSha256', 'operations'],
+    'request supplements',
+  );
+  if (supplements.version !== 1) {
+    throw new Error('request supplement version changed');
+  }
+  if (
+    snapshotSha256 !== expectedSnapshotSha256 ||
+    supplements.snapshotSha256 !== snapshotSha256
+  ) {
+    throw new Error('request supplements do not match the reviewed snapshot');
+  }
+  if (!Array.isArray(supplements.operations)) {
+    throw new Error('request supplement operations must be an array');
+  }
+
+  const expectedKeys = Object.keys(expectedOAuthSupplements).sort(compareText);
+  const actualKeys = supplements.operations.map((item) => item?.operation);
+  if (stableJson(actualKeys) !== stableJson(expectedKeys)) {
+    throw new Error('request supplement operations changed or are not sorted');
+  }
+
+  const operations = operationIndex(document);
+  const metrics = emptyMetrics();
+  const byOperation = new Map();
+  for (const item of supplements.operations) {
+    assertExactKeys(
+      item,
+      [
+        'operation',
+        'supplement',
+        'sourceRequestBody',
+        'sourceDescriptionSha256',
+        'effectiveRequired',
+        'mediaTypes',
+        'canonicalMediaType',
+        'security',
+        'schema',
+        'provenance',
+        'reason',
+      ],
+      'request supplement operation',
+    );
+    if (byOperation.has(item.operation)) {
+      throw new Error('request supplement operation is duplicated');
+    }
+    const expected = expectedOAuthSupplements[item.operation];
+    const source = operations.get(item.operation);
+    if (expected === undefined || source === undefined) {
+      throw new Error('request supplement targets an unknown operation');
+    }
+    if (
+      source.method !== 'post' ||
+      source.operation['x-access'].class !== 'app' ||
+      Object.hasOwn(source.operation, 'requestBody') ||
+      item.sourceRequestBody !== 'absent'
+    ) {
+      throw new Error('request supplement source boundary changed');
+    }
+    if (
+      typeof source.operation.description !== 'string' ||
+      sha256Text(source.operation.description) !==
+        expected.sourceDescriptionSha256 ||
+      item.sourceDescriptionSha256 !== expected.sourceDescriptionSha256
+    ) {
+      throw new Error('request supplement source description changed');
+    }
+    if (
+      item.supplement !== expected.supplement ||
+      item.effectiveRequired !== true ||
+      stableJson(item.mediaTypes) !== stableJson(expected.mediaTypes) ||
+      item.canonicalMediaType !== 'application/x-www-form-urlencoded' ||
+      !item.mediaTypes.includes(item.canonicalMediaType)
+    ) {
+      throw new Error('request supplement media or body policy changed');
+    }
+    assertExactKeys(
+      item.security,
+      Object.keys(expectedOAuthSecurity),
+      'request supplement security policy',
+    );
+    assertDeepEqual(
+      item.security,
+      expectedOAuthSecurity,
+      'request supplement security policy',
+    );
+    assertNonEmptyString(item.provenance, 'request supplement provenance');
+    assertNonEmptyString(item.reason, 'request supplement reason');
+
+    recordSchemaMetrics(item.schema, metrics, true);
+    const schema = normalizeRequestSchema(item.schema, 'reject');
+    assertDeepEqual(
+      schema,
+      expectedSupplementSchema(item.supplement),
+      'request supplement schema',
+    );
+    byOperation.set(item.operation, {
+      requestBody: {
+        source: 'gateway-supplement',
+        supplement: item.supplement,
+        sourceDescriptionSha256: item.sourceDescriptionSha256,
+        effectiveRequired: true,
+        mediaTypes: [...item.mediaTypes],
+        canonicalMediaType: item.canonicalMediaType,
+        schema,
+      },
+      security: { ...item.security },
+    });
+  }
+  assertExactRecord(
+    metrics,
+    EXPECTED_SUPPLEMENT_SCHEMA_METRICS,
+    'request supplement schema grammar',
+  );
+  return { byOperation, metrics };
 }
 
 function findParameterOverride(operationOverride, location, name) {
@@ -818,6 +1094,7 @@ function normalizeRequestBody(
     throw new Error('declared request body policy changed');
   }
   return {
+    source: 'openapi',
     declaredRequired: false,
     effectiveRequired: true,
     mediaType: 'application/json',
@@ -905,13 +1182,23 @@ function normalizeResponses(
   return sortJson(responses);
 }
 
-function runtimePolicy(operationOverride) {
-  if (operationOverride?.policy === 'supplement-required') {
+function runtimePolicy(operationOverride, requestSupplement) {
+  if (operationOverride?.policy === 'implementation-required') {
+    if (
+      requestSupplement === undefined ||
+      requestSupplement.requestBody.supplement !== operationOverride.supplement
+    ) {
+      throw new Error('OAuth implementation boundary lacks its supplement');
+    }
     return {
       enabled: false,
-      policy: 'supplement-required',
+      policy: 'implementation-required',
       supplement: operationOverride.supplement,
+      requiredSecurity: requestSupplement.security,
     };
+  }
+  if (requestSupplement !== undefined) {
+    throw new Error('request supplement is not bound to a disabled runtime');
   }
   return { enabled: true, policy: 'generated' };
 }
@@ -929,13 +1216,23 @@ function bearerPolicy(access) {
   return 'none';
 }
 
-export function generateOperationManifest(document, overrides, snapshotSha256) {
+export function generateOperationManifest(
+  document,
+  overrides,
+  supplements,
+  snapshotSha256,
+) {
   const contractMetrics = validateOpenApiDocument(document);
   if (contractMetrics.operationCount !== expectedOperationCount) {
     throw new Error('operation count changed before manifest generation');
   }
   const reviewed = validateGatewayOverrides(
     overrides,
+    document,
+    snapshotSha256,
+  );
+  const reviewedSupplements = validateRequestSupplements(
+    supplements,
     document,
     snapshotSha256,
   );
@@ -966,12 +1263,18 @@ export function generateOperationManifest(document, overrides, snapshotSha256) {
       requestMetrics,
     );
     assertPathParameters(path, pathParameters);
-    const requestBody = normalizeRequestBody(
+    const sourceRequestBody = normalizeRequestBody(
       operation,
       reviewed.requestObjectUnknownProperties,
       reviewed.declaredRequestBodyPolicy,
       requestMetrics,
     );
+    const requestSupplement = reviewedSupplements.byOperation.get(key);
+    if (requestSupplement !== undefined && sourceRequestBody !== null) {
+      throw new Error('request supplement conflicts with a source request body');
+    }
+    const requestBody =
+      requestSupplement?.requestBody ?? sourceRequestBody;
 
     const access = { class: operation['x-access'].class };
     if (operation['x-access'].scope !== undefined) {
@@ -994,7 +1297,7 @@ export function generateOperationManifest(document, overrides, snapshotSha256) {
       upstreamPath: path,
       gatewayPath: path.replace(/^\/api\/v4\//u, '/solved/v4/'),
       access,
-      runtime: runtimePolicy(operationOverride),
+      runtime: runtimePolicy(operationOverride, requestSupplement),
       parameters: {
         path: pathParameters,
         query: queryParameters,
@@ -1037,12 +1340,14 @@ export function generateOperationManifest(document, overrides, snapshotSha256) {
     publicOpenGetCount,
     bearerPolicyCounts,
     getBearerPolicyCounts,
+    supplementMetrics: reviewedSupplements.metrics,
   };
 }
 
 export function renderOperationManifest(manifest, snapshotSha256) {
   return `/**
- * Generated from the official solved.ac v4 OpenAPI snapshot.
+ * Generated from the official solved.ac v4 OpenAPI snapshot plus the
+ * snapshot-bound reviewed gateway request supplement.
  * Snapshot SHA-256: ${snapshotSha256}
  * Do not edit directly; run npm run openapi:operations:update.
  */
@@ -1070,11 +1375,17 @@ function parseMode(arguments_) {
 
 async function main() {
   const mode = parseMode(process.argv.slice(2));
-  const [snapshotBytes, snapshotManifestBytes, overrideBytes] =
+  const [
+    snapshotBytes,
+    snapshotManifestBytes,
+    overrideBytes,
+    supplementBytes,
+  ] =
     await Promise.all([
       readFile(SNAPSHOT_PATH),
       readFile(MANIFEST_PATH),
       readFile(GATEWAY_OVERRIDES_PATH),
+      readFile(REQUEST_SUPPLEMENTS_PATH),
     ]);
   const { manifest: snapshotManifest } = checkSnapshotBytes(
     snapshotBytes,
@@ -1082,9 +1393,11 @@ async function main() {
   );
   const document = parseJsonBuffer(snapshotBytes);
   const overrides = parseJsonBuffer(overrideBytes);
+  const supplements = parseJsonBuffer(supplementBytes);
   const generated = generateOperationManifest(
     document,
     overrides,
+    supplements,
     snapshotManifest.snapshotSha256,
   );
   const output = renderOperationManifest(

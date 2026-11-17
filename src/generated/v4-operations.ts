@@ -1,5 +1,6 @@
 /**
- * Generated from the official solved.ac v4 OpenAPI snapshot.
+ * Generated from the official solved.ac v4 OpenAPI snapshot plus the
+ * snapshot-bound reviewed gateway request supplement.
  * Snapshot SHA-256: 312abfb4677fc67d914f6a357ff5b89d170eb65791ecb5d3ab30ab873352125d
  * Do not edit directly; run npm run openapi:operations:update.
  */
@@ -4950,7 +4951,8 @@ export const V4_OPERATION_MANIFEST = {
         },
         "required": [],
         "unknownProperties": "reject"
-      }
+      },
+      "source": "openapi"
     },
     "responses": {
       "200": {
@@ -5063,7 +5065,8 @@ export const V4_OPERATION_MANIFEST = {
         },
         "required": [],
         "unknownProperties": "reject"
-      }
+      },
+      "source": "openapi"
     },
     "responses": {
       "200": {
@@ -5371,7 +5374,8 @@ export const V4_OPERATION_MANIFEST = {
         },
         "required": [],
         "unknownProperties": "reject"
-      }
+      },
+      "source": "openapi"
     },
     "responses": {
       "200": {
@@ -5559,7 +5563,8 @@ export const V4_OPERATION_MANIFEST = {
           "slug"
         ],
         "unknownProperties": "reject"
-      }
+      },
+      "source": "openapi"
     },
     "responses": {
       "201": {
@@ -5649,7 +5654,8 @@ export const V4_OPERATION_MANIFEST = {
           "slugs"
         ],
         "unknownProperties": "reject"
-      }
+      },
+      "source": "openapi"
     },
     "responses": {
       "204": {
@@ -5741,7 +5747,8 @@ export const V4_OPERATION_MANIFEST = {
           "problemIds"
         ],
         "unknownProperties": "reject"
-      }
+      },
+      "source": "openapi"
     },
     "responses": {
       "200": {
@@ -5842,7 +5849,8 @@ export const V4_OPERATION_MANIFEST = {
           "problemIds"
         ],
         "unknownProperties": "reject"
-      }
+      },
+      "source": "openapi"
     },
     "responses": {
       "200": {
@@ -5900,7 +5908,31 @@ export const V4_OPERATION_MANIFEST = {
       "path": [],
       "query": []
     },
-    "requestBody": null,
+    "requestBody": {
+      "canonicalMediaType": "application/x-www-form-urlencoded",
+      "effectiveRequired": true,
+      "mediaTypes": [
+        "application/x-www-form-urlencoded"
+      ],
+      "schema": {
+        "kind": "object",
+        "nullable": false,
+        "properties": {
+          "token": {
+            "kind": "string",
+            "minLength": 1,
+            "nullable": false
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "unknownProperties": "reject"
+      },
+      "source": "gateway-supplement",
+      "sourceDescriptionSha256": "15ed35b8d2cca48237a743a65e2db8aba2966ac89dc5ea8df9de4917761d95e1",
+      "supplement": "oauth-revoke"
+    },
     "responses": {
       "200": {
         "mediaTypes": [
@@ -5935,7 +5967,16 @@ export const V4_OPERATION_MANIFEST = {
     },
     "runtime": {
       "enabled": false,
-      "policy": "supplement-required",
+      "policy": "implementation-required",
+      "requiredSecurity": {
+        "appAuthentication": "server-owned-x-client-headers",
+        "browserCors": "exact-origin",
+        "callerAuthorization": "reject",
+        "forwardEtag": false,
+        "responseCache": "no-store",
+        "responsePragma": "no-cache",
+        "upstreamAttempts": 1
+      },
       "supplement": "oauth-revoke"
     },
     "upstreamPath": "/api/v4/oauth/revoke"
@@ -5951,7 +5992,89 @@ export const V4_OPERATION_MANIFEST = {
       "path": [],
       "query": []
     },
-    "requestBody": null,
+    "requestBody": {
+      "canonicalMediaType": "application/x-www-form-urlencoded",
+      "effectiveRequired": true,
+      "mediaTypes": [
+        "application/json",
+        "application/x-www-form-urlencoded"
+      ],
+      "schema": {
+        "kind": "oneOf",
+        "nullable": false,
+        "options": [
+          {
+            "kind": "object",
+            "nullable": false,
+            "properties": {
+              "code": {
+                "kind": "string",
+                "minLength": 1,
+                "nullable": false
+              },
+              "code_verifier": {
+                "kind": "string",
+                "maxLength": 128,
+                "minLength": 43,
+                "nullable": false,
+                "pattern": "^[A-Za-z0-9._~-]{43,128}$"
+              },
+              "grant_type": {
+                "enum": [
+                  "authorization_code"
+                ],
+                "kind": "string",
+                "nullable": false
+              },
+              "redirect_uri": {
+                "kind": "string",
+                "minLength": 1,
+                "nullable": false
+              }
+            },
+            "required": [
+              "code",
+              "code_verifier",
+              "grant_type",
+              "redirect_uri"
+            ],
+            "unknownProperties": "reject"
+          },
+          {
+            "kind": "object",
+            "nullable": false,
+            "properties": {
+              "grant_type": {
+                "enum": [
+                  "refresh_token"
+                ],
+                "kind": "string",
+                "nullable": false
+              },
+              "refresh_token": {
+                "kind": "string",
+                "minLength": 1,
+                "nullable": false
+              },
+              "scope": {
+                "kind": "string",
+                "minLength": 1,
+                "nullable": false,
+                "pattern": "^[\\x21\\x23-\\x5B\\x5D-\\x7E]+(?: [\\x21\\x23-\\x5B\\x5D-\\x7E]+)*$"
+              }
+            },
+            "required": [
+              "grant_type",
+              "refresh_token"
+            ],
+            "unknownProperties": "reject"
+          }
+        ]
+      },
+      "source": "gateway-supplement",
+      "sourceDescriptionSha256": "23370b8ad7f346040583efa6d933c5b3d9cbb5df87f7de2e71ff072065fd4201",
+      "supplement": "oauth-token"
+    },
     "responses": {
       "200": {
         "mediaTypes": [
@@ -5986,7 +6109,16 @@ export const V4_OPERATION_MANIFEST = {
     },
     "runtime": {
       "enabled": false,
-      "policy": "supplement-required",
+      "policy": "implementation-required",
+      "requiredSecurity": {
+        "appAuthentication": "server-owned-x-client-headers",
+        "browserCors": "exact-origin",
+        "callerAuthorization": "reject",
+        "forwardEtag": false,
+        "responseCache": "no-store",
+        "responsePragma": "no-cache",
+        "upstreamAttempts": 1
+      },
       "supplement": "oauth-token"
     },
     "upstreamPath": "/api/v4/oauth/token"
