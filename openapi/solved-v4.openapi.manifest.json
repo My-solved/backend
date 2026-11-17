@@ -1,7 +1,7 @@
 {
-  "snapshotBytes": 642181,
-  "snapshotSha256": "312abfb4677fc67d914f6a357ff5b89d170eb65791ecb5d3ab30ab873352125d",
-  "sourceBytes": 177369,
-  "sourceSha256": "052ab72f544140447778df687463ea5fdfe9cbd24dbefa1b1ff4793f6adbaf0a",
+  "snapshotBytes": 642292,
+  "snapshotSha256": "98177dc4232bcd2f59a284235126b22a4881e9772d3501dd8539cc665b6bbdc1",
+  "sourceBytes": 177480,
+  "sourceSha256": "e92a7d51ef08c604d04570e9d9c95a44300d979bac830a6d54554adac23047dc",
   "sourceUrl": "https://backstage.solved.ac/api/v4/openapi"
 }

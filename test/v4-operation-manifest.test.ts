@@ -64,7 +64,7 @@ test('generated operation manifest covers the complete stable catalog', () => {
   assert.deepEqual(keys, [...keys].sort());
   assert.equal(
     V4_OPERATION_SNAPSHOT_SHA256,
-    '312abfb4677fc67d914f6a357ff5b89d170eb65791ecb5d3ab30ab873352125d',
+    '98177dc4232bcd2f59a284235126b22a4881e9772d3501dd8539cc665b6bbdc1',
   );
   assert.equal(
     entries.filter(
