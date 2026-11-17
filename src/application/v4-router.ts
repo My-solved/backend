@@ -1,5 +1,5 @@
-import { V4_OPERATION_MANIFEST } from '../generated/v4-operations.js';
 import type {
+  V4HttpMethod,
   V4OperationContract,
   V4OperationParameter,
 } from '../domain/v4-operation-contract.js';
@@ -7,18 +7,38 @@ import {
   assertUriSchemaSupported,
   validateUriValue,
 } from '../domain/uri-schema.js';
+import { V4_OPERATION_MANIFEST } from '../generated/v4-operations.js';
 
 const PATH_PARAMETER = /^\{([A-Za-z][A-Za-z0-9]*)\}$/u;
-const EXPECTED_GET_OPERATIONS = 71;
+const HTTP_METHOD_ORDER = Object.freeze([
+  'GET',
+  'POST',
+  'PATCH',
+  'DELETE',
+] as const satisfies readonly V4HttpMethod[]);
+const EXPECTED_RUNTIME_METHOD_COUNTS = Object.freeze({
+  GET: 71,
+  POST: 5,
+  PATCH: 3,
+  DELETE: 2,
+} satisfies Readonly<Record<V4HttpMethod, number>>);
 
-export interface V4GetRoute {
+export interface V4Route {
   readonly key: string;
   readonly operation: V4OperationContract;
 }
 
-export interface MatchedV4GetRoute extends V4GetRoute {
+export interface MatchedV4Route extends V4Route {
   readonly pathValues: Readonly<Record<string, string>>;
 }
+
+export interface MatchedV4Path {
+  readonly allowedMethods: readonly V4HttpMethod[];
+  readonly pathValues: Readonly<Record<string, string>>;
+}
+
+export type V4GetRoute = V4Route;
+export type MatchedV4GetRoute = MatchedV4Route;
 
 interface ParameterEdge {
   readonly name: string;
@@ -28,8 +48,24 @@ interface ParameterEdge {
 
 interface RouteNode {
   readonly literals: Map<string, RouteNode>;
+  readonly routes: Map<V4HttpMethod, V4Route>;
   parameter?: ParameterEdge;
-  route?: V4GetRoute;
+}
+
+interface InternalPathMatch {
+  readonly node: RouteNode;
+  readonly pathValues: Readonly<Record<string, string>>;
+}
+
+export interface V4Router {
+  readonly operationKeys: readonly string[];
+  readonly match: (
+    method: V4HttpMethod,
+    decodedPathSegments: readonly string[],
+  ) => MatchedV4Route | undefined;
+  readonly matchPath: (
+    decodedPathSegments: readonly string[],
+  ) => MatchedV4Path | undefined;
 }
 
 export interface V4GetRouter {
@@ -40,30 +76,40 @@ export interface V4GetRouter {
 }
 
 function createNode(): RouteNode {
-  return { literals: new Map<string, RouteNode>() };
+  return {
+    literals: new Map<string, RouteNode>(),
+    routes: new Map<V4HttpMethod, V4Route>(),
+  };
 }
 
 function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-function getEntries(): V4GetRoute[] {
-  const entries: V4GetRoute[] = [];
+function runtimeEntries(): V4Route[] {
+  const entries: V4Route[] = [];
+  const methodCounts: Record<V4HttpMethod, number> = {
+    GET: 0,
+    POST: 0,
+    PATCH: 0,
+    DELETE: 0,
+  };
   for (const [key, narrowOperation] of Object.entries(V4_OPERATION_MANIFEST)) {
     const operation: V4OperationContract = narrowOperation;
-    if (
-      operation.method === 'GET' &&
-      operation.runtime.enabled &&
-      (operation.access.class === 'open' ||
-        operation.access.class === 'public' ||
-        operation.access.class === 'user')
-    ) {
-      entries.push({ key, operation });
+    if (!operation.runtime.enabled) {
+      continue;
     }
+    entries.push({ key, operation });
+    methodCounts[operation.method] += 1;
   }
   entries.sort((left, right) => compareText(left.key, right.key));
-  if (entries.length !== EXPECTED_GET_OPERATIONS) {
-    throw new Error('v4 GET operation count changed');
+  for (const method of HTTP_METHOD_ORDER) {
+    if (methodCounts[method] !== EXPECTED_RUNTIME_METHOD_COUNTS[method]) {
+      throw new Error(`v4 ${method} operation count changed`);
+    }
+  }
+  if (entries.length !== 81) {
+    throw new Error('v4 runtime operation count changed');
   }
   return entries;
 }
@@ -89,7 +135,7 @@ function sameParameter(
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function insertRoute(root: RouteNode, route: V4GetRoute): void {
+function insertRoute(root: RouteNode, route: V4Route): void {
   if (!route.operation.gatewayPath.startsWith('/solved/v4/')) {
     throw new Error('gateway route escaped the solved v4 namespace');
   }
@@ -132,23 +178,23 @@ function insertRoute(root: RouteNode, route: V4GetRoute): void {
   if (usedParameters.size !== route.operation.parameters.path.length) {
     throw new Error('gateway route path parameters do not match the template');
   }
-  if (node.route !== undefined) {
-    throw new Error('gateway route has a duplicate leaf');
+  if (node.routes.has(route.operation.method)) {
+    throw new Error('gateway route has a duplicate leaf for method');
   }
-  node.route = route;
+  node.routes.set(route.operation.method, route);
 }
 
-function matchNode(
+function matchPathNode(
   node: RouteNode,
   segments: readonly string[],
   index: number,
   values: Record<string, string>,
-): MatchedV4GetRoute | undefined {
+): InternalPathMatch | undefined {
   if (index === segments.length) {
-    return node.route === undefined
+    return node.routes.size === 0
       ? undefined
       : Object.freeze({
-          ...node.route,
+          node,
           pathValues: Object.freeze({ ...values }),
         });
   }
@@ -159,7 +205,7 @@ function matchNode(
 
   const literal = node.literals.get(value);
   if (literal !== undefined) {
-    const matched = matchNode(literal, segments, index + 1, values);
+    const matched = matchPathNode(literal, segments, index + 1, values);
     if (matched !== undefined) {
       return matched;
     }
@@ -171,36 +217,112 @@ function matchNode(
     validateUriValue(value, parameter.parameter.schema)
   ) {
     values[parameter.name] = value;
-    const matched = matchNode(parameter.node, segments, index + 1, values);
+    const matched = matchPathNode(
+      parameter.node,
+      segments,
+      index + 1,
+      values,
+    );
     delete values[parameter.name];
     return matched;
   }
   return undefined;
 }
 
-export function compileGetRouter(
-  routes: readonly V4GetRoute[],
-): V4GetRouter {
+function allowedMethods(node: RouteNode): readonly V4HttpMethod[] {
+  return Object.freeze(
+    HTTP_METHOD_ORDER.filter((method) => node.routes.has(method)),
+  );
+}
+
+export function compileRouter(routes: readonly V4Route[]): V4Router {
   const root = createNode();
-  const operationKeys: string[] = [];
-  for (const route of routes) {
+  const sortedRoutes = [...routes].sort((left, right) =>
+    compareText(left.key, right.key),
+  );
+  for (const route of sortedRoutes) {
     insertRoute(root, route);
-    operationKeys.push(route.key);
     for (const parameter of route.operation.parameters.query) {
       assertUriSchemaSupported(parameter.schema);
     }
   }
+
+  const matchPath = (
+    segments: readonly string[],
+  ): InternalPathMatch | undefined =>
+    matchPathNode(
+      root,
+      segments,
+      0,
+      Object.create(null) as Record<string, string>,
+    );
+
   return Object.freeze({
-    operationKeys: Object.freeze(operationKeys),
-    match: (segments: readonly string[]) =>
-      matchNode(root, segments, 0, Object.create(null) as Record<string, string>),
+    operationKeys: Object.freeze(sortedRoutes.map(({ key }) => key)),
+    match: (method: V4HttpMethod, segments: readonly string[]) => {
+      const path = matchPath(segments);
+      if (path === undefined) {
+        return undefined;
+      }
+      const route = path.node.routes.get(method);
+      return route === undefined
+        ? undefined
+        : Object.freeze({ ...route, pathValues: path.pathValues });
+    },
+    matchPath: (segments: readonly string[]) => {
+      const path = matchPath(segments);
+      return path === undefined
+        ? undefined
+        : Object.freeze({
+            allowedMethods: allowedMethods(path.node),
+            pathValues: path.pathValues,
+          });
+    },
   });
 }
 
-export const GET_ROUTES = Object.freeze(getEntries());
+export function compileGetRouter(
+  routes: readonly V4GetRoute[],
+): V4GetRouter {
+  if (routes.some(({ operation }) => operation.method !== 'GET')) {
+    throw new Error('GET router received a non-GET operation');
+  }
+  const router = compileRouter(routes);
+  return Object.freeze({
+    operationKeys: router.operationKeys,
+    match: (segments: readonly string[]) => router.match('GET', segments),
+  });
+}
+
+export const RUNTIME_ROUTES = Object.freeze(runtimeEntries());
+export const GET_ROUTES = Object.freeze(
+  RUNTIME_ROUTES.filter(({ operation }) => operation.method === 'GET'),
+);
+export const MUTATION_ROUTES = Object.freeze(
+  RUNTIME_ROUTES.filter(({ operation }) => operation.method !== 'GET'),
+);
+
+const runtimeRouter = compileRouter(RUNTIME_ROUTES);
 const getRouter = compileGetRouter(GET_ROUTES);
 
+export const RUNTIME_OPERATION_KEYS = runtimeRouter.operationKeys;
 export const GET_OPERATION_KEYS = getRouter.operationKeys;
+export const MUTATION_OPERATION_KEYS = Object.freeze(
+  MUTATION_ROUTES.map(({ key }) => key),
+);
+
+export function findRuntimeRoute(
+  method: V4HttpMethod,
+  decodedPathSegments: readonly string[],
+): MatchedV4Route | undefined {
+  return runtimeRouter.match(method, decodedPathSegments);
+}
+
+export function findRuntimePath(
+  decodedPathSegments: readonly string[],
+): MatchedV4Path | undefined {
+  return runtimeRouter.matchPath(decodedPathSegments);
+}
 
 export function findRoute(
   decodedPathSegments: readonly string[],

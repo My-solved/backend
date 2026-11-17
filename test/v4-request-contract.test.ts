@@ -8,8 +8,15 @@ import {
 import { parseRequestTarget } from '../src/adapters/http/request-target.js';
 import {
   compileGetRouter,
+  compileRouter,
+  findRuntimePath,
+  findRuntimeRoute,
   GET_OPERATION_KEYS,
   GET_ROUTES,
+  MUTATION_OPERATION_KEYS,
+  MUTATION_ROUTES,
+  RUNTIME_OPERATION_KEYS,
+  RUNTIME_ROUTES,
   type V4GetRoute,
 } from '../src/application/v4-router.js';
 import type { V4RequestSchema } from '../src/domain/v4-operation-contract.js';
@@ -146,6 +153,181 @@ test('runtime surface contains exactly all 71 v4 GET operations', () => {
     GET_ROUTES.some(({ operation }) => operation.access.class === 'app'),
     false,
   );
+});
+
+const expectedMutationKeys = [
+  'DELETE /api/v4/account/bookmark-favorites/{handle}/{slug}',
+  'DELETE /api/v4/account/bookmarks/{slug}',
+  'PATCH /api/v4/account/bookmarks/{slug}',
+  'PATCH /api/v4/account/bookmarks/{slug}/problems/{problemId}',
+  'PATCH /api/v4/account/settings',
+  'POST /api/v4/account/bookmark-favorites/{handle}/{slug}',
+  'POST /api/v4/account/bookmarks',
+  'POST /api/v4/account/bookmarks/order',
+  'POST /api/v4/account/bookmarks/{slug}/problems',
+  'POST /api/v4/account/bookmarks/{slug}/problems/remove',
+] as const;
+
+test('method-aware runtime catalog locks all 81 reviewed operations', () => {
+  assert.equal(RUNTIME_ROUTES.length, 81);
+  assert.equal(RUNTIME_OPERATION_KEYS.length, 81);
+  assert.deepEqual(
+    RUNTIME_OPERATION_KEYS,
+    [...RUNTIME_OPERATION_KEYS].sort(),
+  );
+  assert.equal(new Set(RUNTIME_OPERATION_KEYS).size, 81);
+  assert.deepEqual(MUTATION_OPERATION_KEYS, expectedMutationKeys);
+  assert.equal(MUTATION_ROUTES.length, 10);
+  assert.deepEqual(
+    Object.fromEntries(
+      ['GET', 'POST', 'PATCH', 'DELETE'].map((method) => [
+        method,
+        RUNTIME_ROUTES.filter(
+          ({ operation }) => operation.method === method,
+        ).length,
+      ]),
+    ),
+    { GET: 71, POST: 5, PATCH: 3, DELETE: 2 },
+  );
+  assert.equal(
+    MUTATION_ROUTES.every(
+      ({ operation }) =>
+        operation.runtime.enabled &&
+        operation.access.class === 'user' &&
+        operation.access.bearer === 'required' &&
+        operation.parameters.query.length === 0,
+    ),
+    true,
+  );
+  assert.equal(
+    MUTATION_ROUTES.filter(({ operation }) => operation.requestBody !== null)
+      .length,
+    7,
+  );
+  assert.equal(
+    MUTATION_ROUTES.filter(({ operation }) => operation.requestBody === null)
+      .length,
+    3,
+  );
+  assert.equal(
+    RUNTIME_OPERATION_KEYS.some((key) => key.includes('/api/v4/oauth/')),
+    false,
+  );
+
+  const methodsByPath = new Map<string, string[]>();
+  for (const { operation } of RUNTIME_ROUTES) {
+    const methods = methodsByPath.get(operation.gatewayPath) ?? [];
+    methods.push(operation.method);
+    methodsByPath.set(operation.gatewayPath, methods);
+  }
+  assert.equal(methodsByPath.size, 77);
+  const methodOrder = ['GET', 'POST', 'PATCH', 'DELETE'];
+  assert.deepEqual(
+    [...methodsByPath]
+      .filter(([, methods]) => methods.length > 1)
+      .map(([path, methods]) => ({
+        path,
+        methods: methods.sort(
+          (left, right) =>
+            methodOrder.indexOf(left) - methodOrder.indexOf(right),
+        ),
+      }))
+      .sort((left, right) =>
+        left.path < right.path ? -1 : left.path > right.path ? 1 : 0,
+      ),
+    [
+      {
+        path: '/solved/v4/account/bookmark-favorites/{handle}/{slug}',
+        methods: ['POST', 'DELETE'],
+      },
+      {
+        path: '/solved/v4/account/bookmarks',
+        methods: ['GET', 'POST'],
+      },
+      {
+        path: '/solved/v4/account/bookmarks/{slug}',
+        methods: ['PATCH', 'DELETE'],
+      },
+      {
+        path: '/solved/v4/account/settings',
+        methods: ['GET', 'PATCH'],
+      },
+    ],
+  );
+
+  const bodyRoutes = MUTATION_ROUTES.filter(
+    ({ operation }) => operation.requestBody !== null,
+  );
+  assert.equal(
+    bodyRoutes.every(
+      ({ operation }) =>
+        operation.requestBody?.declaredRequired === false &&
+        operation.requestBody.effectiveRequired === true &&
+        operation.requestBody.mediaType === 'application/json',
+    ),
+    true,
+  );
+  assert.deepEqual(
+    MUTATION_ROUTES.filter(({ operation }) => operation.requestBody === null)
+      .map(({ key }) => key),
+    [
+      'DELETE /api/v4/account/bookmark-favorites/{handle}/{slug}',
+      'DELETE /api/v4/account/bookmarks/{slug}',
+      'POST /api/v4/account/bookmark-favorites/{handle}/{slug}',
+    ],
+  );
+});
+
+for (const route of MUTATION_ROUTES) {
+  test(`resolves generated mutation route ${route.key}`, () => {
+    const pathValues = Object.fromEntries(
+      route.operation.parameters.path.map((parameter) => [
+        parameter.name,
+        sampleUriValue(parameter.schema),
+      ]),
+    );
+    const gatewayPath = replacePathParameters(
+      route.operation.gatewayPath,
+      pathValues,
+    );
+    const parsed = requestTarget(gatewayPath);
+    const matched = findRuntimeRoute(
+      route.operation.method,
+      parsed.decodedPathSegments,
+    );
+    assert.equal(matched?.key, route.key);
+    assert.deepEqual(matched?.pathValues, pathValues);
+  });
+}
+
+test('path literals win before method lookup on the order overlap', () => {
+  const path = requestTarget('/solved/v4/account/bookmarks/order');
+  assert.deepEqual(findRuntimePath(path.decodedPathSegments)?.allowedMethods, [
+    'POST',
+  ]);
+  assert.equal(
+    findRuntimeRoute('POST', path.decodedPathSegments)?.key,
+    'POST /api/v4/account/bookmarks/order',
+  );
+  assert.equal(findRuntimeRoute('PATCH', path.decodedPathSegments), undefined);
+  assert.equal(findRuntimeRoute('DELETE', path.decodedPathSegments), undefined);
+});
+
+test('router stores distinct methods at the same exact path leaf', () => {
+  const favorites = MUTATION_ROUTES.filter(({ key }) =>
+    key.includes('/api/v4/account/bookmark-favorites/'),
+  );
+  assert.equal(favorites.length, 2);
+  const router = compileRouter(favorites);
+  const segments = requestTarget(
+    '/solved/v4/account/bookmark-favorites/tourist/example',
+  ).decodedPathSegments;
+  assert.match(router.match('POST', segments)?.key ?? '', /^POST /u);
+  assert.match(router.match('DELETE', segments)?.key ?? '', /^DELETE /u);
+  assert.deepEqual(router.matchPath(segments)?.allowedMethods, [
+    'POST',
+    'DELETE',
+  ]);
 });
 
 for (const route of GET_ROUTES) {

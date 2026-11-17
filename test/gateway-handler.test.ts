@@ -150,6 +150,77 @@ for (const method of ['POST', 'PUT', 'DELETE', 'PATCH', 'HEAD']) {
   });
 }
 
+const closedMutationTargets = [
+  {
+    method: 'DELETE',
+    url: '/solved/v4/account/bookmark-favorites/tourist/example',
+    status: 404,
+  },
+  {
+    method: 'DELETE',
+    url: '/solved/v4/account/bookmarks/example',
+    status: 404,
+  },
+  {
+    method: 'PATCH',
+    url: '/solved/v4/account/bookmarks/example',
+    status: 404,
+  },
+  {
+    method: 'PATCH',
+    url: '/solved/v4/account/bookmarks/example/problems/1000',
+    status: 404,
+  },
+  {
+    method: 'PATCH',
+    url: '/solved/v4/account/settings',
+    status: 405,
+  },
+  {
+    method: 'POST',
+    url: '/solved/v4/account/bookmark-favorites/tourist/example',
+    status: 404,
+  },
+  {
+    method: 'POST',
+    url: '/solved/v4/account/bookmarks',
+    status: 405,
+  },
+  {
+    method: 'POST',
+    url: '/solved/v4/account/bookmarks/order',
+    status: 404,
+  },
+  {
+    method: 'POST',
+    url: '/solved/v4/account/bookmarks/example/problems',
+    status: 404,
+  },
+  {
+    method: 'POST',
+    url: '/solved/v4/account/bookmarks/example/problems/remove',
+    status: 404,
+  },
+] as const;
+
+for (const { method, url, status } of closedMutationTargets) {
+  test(`keeps mutation runtime closed before body handling: ${method} ${url}`, async () => {
+    let calls = 0;
+    const result = await handleGatewayRequest(
+      { method, url, rawHeaders: ['Authorization', 'Bearer caller-token'] },
+      {
+        credentials,
+        fetch: async () => {
+          calls += 1;
+          return jsonUpstreamResponse();
+        },
+      },
+    );
+    assert.equal(result.status, status);
+    assert.equal(calls, 0);
+  });
+}
+
 test('rejects an unknown path before calling upstream', async () => {
   let calls = 0;
   const result = await handleGatewayRequest(

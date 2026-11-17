@@ -112,10 +112,12 @@ component-schema counts change. Review and update those invariants in
 committed snapshot preserves the source schemas and arrays as-is;
 canonicalization only orders JSON object keys and formatting.
 
-Runtime routing consumes this contract but still fails closed: only the 71
-runtime-enabled `GET` entries in the `open`, `public`, and `user` access classes
-are compiled into the route trie. App operations and non-GET entries do not
-become reachable merely by existing in the generated data.
+The application catalog compiles all 81 runtime-enabled operations into a
+method-aware trie so same-path methods remain distinct and auditable. The HTTP
+gateway still resolves only the 71 `GET` entries, so mutations remain closed;
+the two app/OAuth operations remain runtime-disabled. An operation does not
+become reachable merely by existing in the generated data or application
+catalog.
 
 The current upstream document also has known gaps that must remain explicit in
 follow-up generation rather than being silently guessed: it declares no
@@ -185,6 +187,12 @@ OAuth token and revocation remain runtime-disabled with
 `supplement-required`; their prose-only bodies are not guessed here. Defaults
 from OpenAPI are retained as `annotationDefault` metadata and are never
 injected into a request.
+
+`src/domain/request-json-schema.ts` validates parsed JSON values against this
+normalized request grammar, including strict object keys and every array,
+scalar, nullability, enum, pattern, and bound constraint. It has no HTTP body
+parser or routing side effect; mutation activation remains a separate reviewed
+change.
 
 Regenerate or verify the manifest entirely from committed local files:
 

@@ -1,17 +1,8 @@
 import type { V4RequestSchema } from './v4-operation-contract.js';
+import { matchesSchemaPattern } from './schema-pattern.js';
 
 const INVALID_URI_VALUE = /\p{Cc}/u;
 const CANONICAL_INTEGER = /^(?:0|-?[1-9]\d*)$/u;
-const compiledPatterns = new Map<string, RegExp>();
-
-function patternMatches(value: string, pattern: string): boolean {
-  let expression = compiledPatterns.get(pattern);
-  if (expression === undefined) {
-    expression = new RegExp(pattern, 'u');
-    compiledPatterns.set(pattern, expression);
-  }
-  return expression.test(value);
-}
 
 function validateString(
   value: string,
@@ -33,7 +24,10 @@ function validateString(
   ) {
     return false;
   }
-  return schema.pattern === undefined || patternMatches(value, schema.pattern);
+  return (
+    schema.pattern === undefined ||
+    matchesSchemaPattern(value, schema.pattern)
+  );
 }
 
 function validateInteger(
