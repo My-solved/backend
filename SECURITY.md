@@ -19,8 +19,3 @@ The solved.ac API response is treated as untrusted input and is limited by a
 request deadline and maximum response size. Redirects are rejected. Only a
 small response-header allowlist is returned; cookies, locations, and internal
 headers are dropped.
-
-The legacy CodePoker image and its credentials are outside this repository. If a
-legacy image was ever built after copying a generated `.env` into its build
-context, rotate those credentials after deploying a clean replacement; deleting
-the file from a later layer is not sufficient.

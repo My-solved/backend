@@ -120,11 +120,7 @@ function parseRequestUrl(rawUrl: string | undefined): URL | undefined {
 }
 
 function isKnownPath(pathname: string): boolean {
-  return (
-    pathname === '/healthz' ||
-    pathname === '/api' ||
-    findRoute(pathname) !== undefined
-  );
+  return pathname === '/healthz' || findRoute(pathname) !== undefined;
 }
 
 function hasRequestBody(request: IncomingMessage): boolean {
@@ -147,9 +143,7 @@ function bypassesConcurrencyLimit(request: GatewayRequest): boolean {
     return false;
   }
   const requestUrl = parseRequestUrl(request.url);
-  return (
-    requestUrl?.pathname === '/healthz' || requestUrl?.pathname === '/api'
-  );
+  return requestUrl?.pathname === '/healthz';
 }
 
 export async function handleGatewayRequest(
@@ -178,14 +172,6 @@ export async function handleGatewayRequest(
   if (requestUrl.pathname === '/healthz') {
     return jsonResponse(200, { status: 'ok' }, { 'cache-control': 'no-store' });
   }
-  if (requestUrl.pathname === '/api') {
-    return jsonResponse(
-      200,
-      { service: 'solved-proxy', status: 'ok' },
-      { 'cache-control': 'no-store' },
-    );
-  }
-
   try {
     const { upstreamUrl, apiVersion } = resolveProxyRequest(
       requestUrl,
