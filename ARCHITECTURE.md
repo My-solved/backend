@@ -33,6 +33,37 @@ the reviewed solved.ac adapter. This is the single documented adapter-to-adapter
 orchestration point. It can be split into a separate use-case layer if runtime
 flows become substantially more complex.
 
+The mutation boundary is split by responsibility:
+
+- `application/v4-router.ts` performs literal-first, method-aware dispatch and
+  reports the exact methods at a path.
+- `application/v4-request-contract.ts` resolves query/path values from that
+  already-matched route; it never rematches a mutation through the GET router.
+- `adapters/http/request-body.ts` validates framing/media metadata and streams
+  at most 65,536 bytes while a concurrency slot is held.
+- `adapters/http/strict-json-body.ts` applies fatal UTF-8, JSON grammar,
+  nesting, and decoded duplicate-key checks.
+- `domain/request-json-schema.ts` validates the parsed value, after which
+  `domain/validated-json-request-body.ts` creates an opaque canonical payload.
+- `adapters/solved/solved-client.ts` accepts a discriminated GET/mutation
+  policy. Its types and runtime checks prevent cacheable authorization, GET
+  bodies, unauthenticated mutations, and the wrong PATCH/DELETE body mode.
+
+## Request lifecycle
+
+For a mutation, the gateway resolves the fixed target, literal path, exact
+method, CORS policy, query contract, Bearer value, and server credentials before
+reading a body. It then acquires one of the bounded request slots, streams and
+validates the payload, and performs exactly one redirect-disabled upstream
+fetch. Early rejection of a framed unread body closes the connection. Node
+`Expect` events are rejected with `417` at the composition boundary so Node
+cannot automatically send `100 Continue` before these checks.
+
+Bodyless and JSON operations remain distinct through the entire flow. Only the
+seven reviewed JSON mutations add an upstream `Content-Type`; caller framing,
+cookies, and app credentials never cross the adapter boundary. Every mutation
+response is token-aware and therefore strips ETag and forces `no-store`.
+
 The source-layout test enforces the root shape and the lower-layer dependency
 direction. Keep tests flat under `test/` so Node's test command remains simple;
 their filenames mirror the production module roles.

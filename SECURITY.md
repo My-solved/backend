@@ -8,20 +8,32 @@ in a public issue.
 
 ## Security boundaries
 
-This gateway accepts only the generated 71-operation v4 `GET` surface and each
-operation's declared path and query values. The 18 user operations require one
-bounded RFC 6750 Bearer value; four scoped-public operations accept one
-optionally. Authorization is parsed from raw headers only after route and query
-resolution, duplicates and malformed schemes fail closed, and token scopes are
-never parsed locally. Bearer values are forwarded only to those 22 reviewed
-operations and are never stored or logged by the service. Cookies and caller
-app credentials are never forwarded.
+This gateway accepts only the 81 runtime-enabled operations generated from the
+reviewed v4 contract: 71 reads and the exact ten documented user mutations.
+Each operation keeps its fixed method, path/query schema, request-body policy,
+and response contract. The 28 user operations require one bounded RFC 6750
+Bearer value; four scoped-public reads accept one optionally. Authorization is
+parsed from raw headers only after route and query resolution, duplicates and
+malformed schemes fail closed, and token scopes are never parsed locally.
+Bearer values are never stored or logged. Cookies and caller app credentials
+are never forwarded.
 
-The gateway does not accept an upstream URL, app-access operations, mutation
-methods, request bodies, or OAuth. Raw request targets and decoded URI
-components are bounded and validated before routing; upstream paths are built
-only from fixed `/api/v4` templates. The v4 client ID and secret are read from
-the files named by `SOLVED_CLIENT_ID_FILE` and
+The seven JSON mutations require a nonempty body and accept only
+`application/json` with at most a reviewed UTF-8 charset. Input is streamed
+inside the configured concurrency budget (eight by default), capped at exactly
+65,536 bytes, and decoded with fatal UTF-8. BOMs, excessive nesting, trailing or
+malformed JSON, and decoded duplicate keys are rejected before the value is
+validated against the generated request schema. The other three mutations
+reject a body or media type. Caller Content-Length and Content-Encoding are
+never forwarded. Framed requests rejected before consumption receive
+`Connection: close`; unsupported
+`Expect` handshakes receive `417` without an interim `100 Continue`. Mutations
+are sent once with redirects disabled and are never retried.
+
+The gateway does not accept an upstream URL, app-access operations, or OAuth.
+Raw request targets and decoded URI components are bounded and validated before
+routing; upstream paths are built only from fixed `/api/v4` templates. The v4
+client ID and secret are read from the files named by `SOLVED_CLIENT_ID_FILE` and
 `SOLVED_CLIENT_SECRET_FILE`, then injected only into allowlisted v4 upstream
 requests. They must be mounted at runtime and must never be copied into the
 image, committed, sent by a client, or placed in a build argument.
@@ -37,9 +49,12 @@ Every response from a user or scoped-public operation is forced to
 `Cache-Control: no-store` and has its `ETag` removed, even when a scoped-public
 request is anonymous. Their browser CORS policy defaults closed and allows only
 exact origins from `SOLVED_PROTECTED_CORS_ORIGINS`, with no credentialed or
-wildcard mode; native requests without Origin remain supported. Anonymous
-unscoped public GETs keep wildcard CORS but never approve an Authorization
-preflight. CORS is only a browser boundary and does not replace caller policy.
+wildcard mode; native requests without Origin remain supported. Protected
+preflight is resolved against the exact method at the matched literal path:
+Authorization is allowed for protected operations and Content-Type only for a
+JSON-body method. Anonymous unscoped public GETs keep wildcard CORS but never
+approve an Authorization preflight. CORS is only a browser boundary and does
+not replace caller policy.
 
 Each deployment consumes one operator-owned solved.ac app quota and is not a
 communal anonymous relay. The default Compose configuration publishes the

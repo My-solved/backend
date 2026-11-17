@@ -3,6 +3,10 @@ import {
   type BearerAuthorization,
 } from '../../domain/bearer-authorization.js';
 import type { SolvedClientCredentials } from '../../domain/solved-client-credentials.js';
+import {
+  validatedJsonRequestBodyBytes,
+  type ValidatedJsonRequestBody,
+} from '../../domain/validated-json-request-body.js';
 import type { V4ResponseContract } from '../../domain/v4-operation-contract.js';
 
 export const DEFAULT_UPSTREAM_TIMEOUT_MS = 8_000;
@@ -31,16 +35,47 @@ export interface ProxyResponse {
   readonly body: Uint8Array;
 }
 
+type NoProxyRequestBody = { readonly kind: 'none' };
+type JsonProxyRequestBody = {
+  readonly kind: 'json';
+  readonly body: ValidatedJsonRequestBody;
+};
+
 export type ProxyRequestPolicy =
   | {
+      readonly method: 'GET';
       readonly responses: Readonly<Record<string, V4ResponseContract>>;
       readonly responseCache: 'upstream';
       readonly authorization?: never;
+      readonly requestBody?: never;
     }
   | {
+      readonly method: 'GET';
       readonly responses: Readonly<Record<string, V4ResponseContract>>;
       readonly responseCache: 'no-store';
       readonly authorization?: BearerAuthorization;
+      readonly requestBody?: never;
+    }
+  | {
+      readonly method: 'POST';
+      readonly responses: Readonly<Record<string, V4ResponseContract>>;
+      readonly responseCache: 'no-store';
+      readonly authorization: BearerAuthorization;
+      readonly requestBody: NoProxyRequestBody | JsonProxyRequestBody;
+    }
+  | {
+      readonly method: 'PATCH';
+      readonly responses: Readonly<Record<string, V4ResponseContract>>;
+      readonly responseCache: 'no-store';
+      readonly authorization: BearerAuthorization;
+      readonly requestBody: JsonProxyRequestBody;
+    }
+  | {
+      readonly method: 'DELETE';
+      readonly responses: Readonly<Record<string, V4ResponseContract>>;
+      readonly responseCache: 'no-store';
+      readonly authorization: BearerAuthorization;
+      readonly requestBody: NoProxyRequestBody;
     };
 
 export class UpstreamError extends Error {
@@ -57,6 +92,55 @@ export class UpstreamError extends Error {
     super(message);
     this.name = 'UpstreamError';
   }
+}
+
+function requestBytesFor(policy: ProxyRequestPolicy): Uint8Array | undefined {
+  const method = (policy as { readonly method?: unknown }).method;
+  if (method === 'GET') {
+    if (
+      policy.responseCache !== 'upstream' &&
+      policy.responseCache !== 'no-store'
+    ) {
+      throw new TypeError('Invalid proxy request policy');
+    }
+    if (
+      policy.responseCache === 'upstream' &&
+      policy.authorization !== undefined
+    ) {
+      throw new TypeError('Invalid proxy request policy');
+    }
+    if ((policy as { readonly requestBody?: unknown }).requestBody !== undefined) {
+      throw new TypeError('Invalid proxy request policy');
+    }
+    return undefined;
+  }
+  if (method !== 'POST' && method !== 'PATCH' && method !== 'DELETE') {
+    throw new TypeError('Invalid proxy request policy');
+  }
+  const mutation = policy as Extract<
+    ProxyRequestPolicy,
+    { readonly method: 'POST' | 'PATCH' | 'DELETE' }
+  >;
+  if (
+    mutation.responseCache !== 'no-store' ||
+    mutation.authorization === undefined ||
+    mutation.requestBody === undefined
+  ) {
+    throw new TypeError('Invalid proxy request policy');
+  }
+  if (
+    (method === 'DELETE' && mutation.requestBody.kind !== 'none') ||
+    (method === 'PATCH' && mutation.requestBody.kind !== 'json')
+  ) {
+    throw new TypeError('Invalid proxy request policy');
+  }
+  if (mutation.requestBody.kind === 'none') {
+    return undefined;
+  }
+  if (mutation.requestBody.kind !== 'json') {
+    throw new TypeError('Invalid proxy request policy');
+  }
+  return validatedJsonRequestBodyBytes(mutation.requestBody.body);
 }
 
 async function cancelResponseBody(response: Response): Promise<void> {
@@ -171,12 +255,7 @@ export async function proxyRequest(
   policy: ProxyRequestPolicy,
   dependencies: ProxyDependencies = {},
 ): Promise<ProxyResponse> {
-  if (
-    policy.responseCache === 'upstream' &&
-    policy.authorization !== undefined
-  ) {
-    throw new TypeError('Invalid proxy request policy');
-  }
+  const requestBody = requestBytesFor(policy);
   const fetchImplementation = dependencies.fetch ?? globalThis.fetch;
   const timeoutMs = dependencies.timeoutMs ?? DEFAULT_UPSTREAM_TIMEOUT_MS;
   const maxResponseBytes =
@@ -196,6 +275,13 @@ export async function proxyRequest(
   }
 
   try {
+    if (controller.signal.aborted) {
+      throw new UpstreamError(
+        502,
+        'upstream_unavailable',
+        'Upstream request was aborted before dispatch',
+      );
+    }
     const requestHeaders: Record<string, string> = {
       accept: 'application/json',
     };
@@ -208,11 +294,17 @@ export async function proxyRequest(
         policy.authorization,
       );
     }
+    if (requestBody !== undefined) {
+      requestHeaders['content-type'] = 'application/json';
+    }
     const response = await fetchImplementation(upstreamUrl, {
-      method: 'GET',
+      method: policy.method,
       headers: requestHeaders,
       redirect: 'manual',
       signal: controller.signal,
+      ...(requestBody === undefined
+        ? {}
+        : { body: Buffer.from(requestBody) }),
     });
 
     if (response.status >= 300 && response.status < 400) {

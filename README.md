@@ -6,24 +6,32 @@ injects that app's credentials only for reviewed `/solved/v4/*` operations.
 
 The service has no database, cache, login flow, token persistence, BOJ
 credential, or runtime package dependency. Its current runtime surface is
-generated from the reviewed operation manifest and contains exactly all 71
-runtime-enabled v4 `GET` operations: 53 `open`/`public` operations and 18
-`user` operations. Fixed `/solved/v4/*` templates map only to their
-corresponding `https://solved.ac/api/v4/*` templates, with app credentials read
-from mounted secret files.
+generated from the reviewed operation manifest and contains exactly 81 v4
+operations: all 71 `GET` operations plus the ten documented user mutations
+(`POST` 5, `PATCH` 3, `DELETE` 2). Fixed `/solved/v4/*` templates map only to
+their corresponding `https://solved.ac/api/v4/*` templates, with app
+credentials read from mounted secret files.
 
-The 18 user operations require exactly one RFC 6750 Bearer value. The four
+All 28 user operations require exactly one RFC 6750 Bearer value. The four
 public operations that carry a scope (`solves`, `bookmarks`, or `votes`) accept
 one optionally and otherwise keep their anonymous semantics. The gateway does
 not inspect or infer token scopes; solved.ac remains authoritative for user and
 scope behavior. Malformed or duplicate Authorization is rejected instead of
 downgrading to anonymous. Authorization on any other public operation is
 ignored, and caller `Cookie`, `x-client-id`, and `x-client-secret` values are
-never forwarded. App-access operations, `POST`, `PATCH`, `DELETE`, OAuth,
-request bodies, arbitrary upstream paths, unknown query parameters, and
-duplicate query parameters remain unreachable.
+never forwarded. The seven documented JSON mutations require a non-empty body,
+while the other three mutations reject one. App-access operations, OAuth,
+arbitrary upstream paths, unknown query parameters, and duplicate query
+parameters remain unreachable.
 
-All 22 token-aware operation responses are forced to `Cache-Control: no-store`
+Mutation bodies are capped at 64 KiB, decoded as fatal UTF-8, parsed with a
+depth limit and duplicate-key rejection, and validated against the normalized
+official request schema before canonical JSON bytes are sent upstream. The
+gateway rejects undeclared media types, content encodings, ambiguous framing,
+and `Expect` handshakes; it never forwards caller framing headers or retries a
+mutation.
+
+All 32 token-aware operation responses are forced to `Cache-Control: no-store`
 and have `ETag` removed, including anonymous calls to the four scoped-public
 operations. Browser access to those operations uses an exact configured origin
 allowlist; native/no-Origin requests remain available. Unscoped anonymous
@@ -114,10 +122,9 @@ canonicalization only orders JSON object keys and formatting.
 
 The application catalog compiles all 81 runtime-enabled operations into a
 method-aware trie so same-path methods remain distinct and auditable. The HTTP
-gateway still resolves only the 71 `GET` entries, so mutations remain closed;
-the two app/OAuth operations remain runtime-disabled. An operation does not
-become reachable merely by existing in the generated data or application
-catalog.
+gateway resolves those 71 reads and ten reviewed mutations; the two app/OAuth
+operations remain runtime-disabled. An operation does not become reachable
+merely by existing in the generated data or application catalog.
 
 The current upstream document also has known gaps that must remain explicit in
 follow-up generation rather than being silently guessed: it declares no
@@ -191,8 +198,9 @@ injected into a request.
 `src/domain/request-json-schema.ts` validates parsed JSON values against this
 normalized request grammar, including strict object keys and every array,
 scalar, nullability, enum, pattern, and bound constraint. It has no HTTP body
-parser or routing side effect; mutation activation remains a separate reviewed
-change.
+parser or routing side effect; the inbound adapter activates only the ten
+reviewed user mutations and passes an opaque validated body to the outbound
+adapter.
 
 Regenerate or verify the manifest entirely from committed local files:
 

@@ -150,77 +150,6 @@ for (const method of ['POST', 'PUT', 'DELETE', 'PATCH', 'HEAD']) {
   });
 }
 
-const closedMutationTargets = [
-  {
-    method: 'DELETE',
-    url: '/solved/v4/account/bookmark-favorites/tourist/example',
-    status: 404,
-  },
-  {
-    method: 'DELETE',
-    url: '/solved/v4/account/bookmarks/example',
-    status: 404,
-  },
-  {
-    method: 'PATCH',
-    url: '/solved/v4/account/bookmarks/example',
-    status: 404,
-  },
-  {
-    method: 'PATCH',
-    url: '/solved/v4/account/bookmarks/example/problems/1000',
-    status: 404,
-  },
-  {
-    method: 'PATCH',
-    url: '/solved/v4/account/settings',
-    status: 405,
-  },
-  {
-    method: 'POST',
-    url: '/solved/v4/account/bookmark-favorites/tourist/example',
-    status: 404,
-  },
-  {
-    method: 'POST',
-    url: '/solved/v4/account/bookmarks',
-    status: 405,
-  },
-  {
-    method: 'POST',
-    url: '/solved/v4/account/bookmarks/order',
-    status: 404,
-  },
-  {
-    method: 'POST',
-    url: '/solved/v4/account/bookmarks/example/problems',
-    status: 404,
-  },
-  {
-    method: 'POST',
-    url: '/solved/v4/account/bookmarks/example/problems/remove',
-    status: 404,
-  },
-] as const;
-
-for (const { method, url, status } of closedMutationTargets) {
-  test(`keeps mutation runtime closed before body handling: ${method} ${url}`, async () => {
-    let calls = 0;
-    const result = await handleGatewayRequest(
-      { method, url, rawHeaders: ['Authorization', 'Bearer caller-token'] },
-      {
-        credentials,
-        fetch: async () => {
-          calls += 1;
-          return jsonUpstreamResponse();
-        },
-      },
-    );
-    assert.equal(result.status, status);
-    assert.equal(calls, 0);
-  });
-}
-
 test('rejects an unknown path before calling upstream', async () => {
   let calls = 0;
   const result = await handleGatewayRequest(
@@ -799,6 +728,32 @@ test('rejects request bodies before calling upstream', () => {
   assert.equal(calls, 0);
   assert.doesNotThrow(() => request.emit('error', new Error('reset')));
   assert.doesNotThrow(() => response.emit('error', new Error('reset')));
+});
+
+test('keeps bodyless GET behavior independent of caller media headers', async () => {
+  let calls = 0;
+  const result = await handleGatewayRequest(
+    {
+      method: 'GET',
+      url: '/solved/v4/tags',
+      rawHeaders: [
+        'Content-Type', 'text/plain',
+        'content-type', 'application/json',
+        'Content-Encoding', 'identity',
+        'content-encoding', 'gzip',
+        'Content-Length', '0',
+      ],
+    },
+    {
+      credentials,
+      fetch: async () => {
+        calls += 1;
+        return jsonUpstreamResponse();
+      },
+    },
+  );
+  assert.equal(result.status, 200);
+  assert.equal(calls, 1);
 });
 
 test('caps concurrent proxy requests while health remains available', async () => {

@@ -1,7 +1,7 @@
 import type { V4ResponseContract } from '../domain/v4-operation-contract.js';
 import { validateUriValue } from '../domain/uri-schema.js';
 import type { ParsedRequestTarget } from './parsed-request-target.js';
-import { findRoute } from './v4-router.js';
+import { findRoute, type MatchedV4Route } from './v4-router.js';
 
 export const SOLVED_API_BASE_URL = 'https://solved.ac/' as const;
 
@@ -42,15 +42,11 @@ function resolveUpstreamPath(
   return resolved;
 }
 
-export function resolveProxyRequest(
+export function resolveMatchedProxyRequest(
   requestTarget: ParsedRequestTarget,
+  route: MatchedV4Route,
   upstreamBaseUrl: string | URL = SOLVED_API_BASE_URL,
 ): ResolvedProxyRequest {
-  const route = findRoute(requestTarget.decodedPathSegments);
-  if (route === undefined) {
-    throw new ContractError(404, 'not_found', 'Route not found');
-  }
-
   const allowedNames = new Set(
     route.operation.parameters.query.map(({ name }) => name),
   );
@@ -104,4 +100,16 @@ export function resolveProxyRequest(
     upstreamUrl,
     responsePolicy: route.operation.responses,
   });
+}
+
+/** GET-only compatibility wrapper for callers which do not dispatch methods. */
+export function resolveProxyRequest(
+  requestTarget: ParsedRequestTarget,
+  upstreamBaseUrl: string | URL = SOLVED_API_BASE_URL,
+): ResolvedProxyRequest {
+  const route = findRoute(requestTarget.decodedPathSegments);
+  if (route === undefined) {
+    throw new ContractError(404, 'not_found', 'Route not found');
+  }
+  return resolveMatchedProxyRequest(requestTarget, route, upstreamBaseUrl);
 }
