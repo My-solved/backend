@@ -51,6 +51,59 @@ The build emits JavaScript to `dist/`. Tests use Node's built-in test runner and
 stub upstream `fetch`; they need no external network access. The load-tool test
 binds only an ephemeral loopback port.
 
+## Official OpenAPI contract
+
+The complete machine-readable solved.ac v4 contract is pinned at
+[`openapi/solved-v4.openapi.json`](openapi/solved-v4.openapi.json). It is a
+canonical JSON snapshot of all 79 paths and 83 operations from
+`https://backstage.solved.ac/api/v4/openapi`, not a product-specific selection.
+[`openapi/solved-v4.openapi.manifest.json`](openapi/solved-v4.openapi.manifest.json)
+records the fixed source URL plus byte counts and distinct SHA-256 values for
+the fetched source bytes and the canonical committed snapshot. The source hash
+records the fingerprint of the exact upstream response that produced the
+snapshot; the snapshot hash is what offline verification recomputes. The
+manifest deliberately has no fetched timestamp or other volatile field.
+
+Check the committed files entirely offline:
+
+```sh
+npm run openapi:check
+```
+
+Updating is a deliberate, networked maintenance operation:
+
+```sh
+npm run openapi:update
+npm run openapi:check
+git diff -- openapi/
+npm test
+```
+
+The update command requires Node.js 24, sends no credentials, refuses
+redirects, times out after 30 seconds, limits the response to 5 MiB, validates
+the JSON content type and OpenAPI 3.1 production server, and replaces each
+output file atomically. It fails closed when the reviewed path, operation,
+method, `x-access.class`, parameter, request-body, response, operation-ID, or
+component-schema counts change. Review and update those invariants in
+`tool/openapi-contract.mjs` only after inspecting the upstream diff. The
+committed snapshot preserves the source schemas and arrays as-is;
+canonicalization only orders JSON object keys and formatting.
+
+This import does **not** expand the running gateway. Runtime routing remains the
+strict initial `GET` subset listed above until subsequent reviewed generators
+and route PRs consume this contract.
+
+The current upstream document also has known gaps that must remain explicit in
+follow-up generation rather than being silently guessed: it declares no
+operation IDs or OpenAPI security schemes; access is described by `x-access`;
+the OAuth token operation describes a form-or-JSON body only in prose; and the
+revocation operation names its `token` parameter only in prose without stating
+a media type. Neither OAuth operation has a `requestBody` schema. All seven
+declared JSON request bodies omit `requestBody.required`, and the
+affiliation-ranking path parameter is marked optional and nullable by the
+source. The raw snapshot is authoritative and intentionally does not patch
+those omissions.
+
 ## Load and smoke verification
 
 Run the bounded mock load harness without solved.ac credentials or network
